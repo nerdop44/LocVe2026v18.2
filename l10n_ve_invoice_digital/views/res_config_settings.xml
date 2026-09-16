@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_res_config_settings_inherit_tfhka_locve" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.tfhka.locve</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="account.res_config_settings_view_form" />
+        <field name="arch" type="xml">
+            <xpath expr="//block[@name='default_taxes_setting_container']" position="after">
+                <block title="Facturación Digital TFHKA (LocVe)" id="l10n_ve_invoice_digital_block">
+                    <setting id="l10n_ve_invoice_digital_setting" help="Facturación electrónica en la nube a través de The Factory HKA (TFHKA)">
+                        <field name="invoice_digital_tfhka"/>
+                        <div class="content-group mt16" invisible="not invoice_digital_tfhka">
+                            <div class="row">
+                                <div class="col-6">
+                                    <div class="o_setting_right_pane">
+                                        <label for="username_tfhka" class="col-form-label">Usuario TFHKA</label>
+                                        <field name="username_tfhka" class="w-100"/>
+                                    </div>
+                                    <div class="o_setting_right_pane">
+                                        <label for="password_tfhka" class="col-form-label">Contraseña TFHKA</label>
+                                        <field name="password_tfhka" password="True" class="w-100"/>
+                                    </div>
+                                    <div class="o_setting_right_pane">
+                                        <label for="url_tfhka" class="col-form-label">URL API TFHKA</label>
+                                        <field name="url_tfhka" class="w-100" placeholder="https://demoemision.thefactoryhka.com.ve/api"/>
+                                    </div>
+                                    <div class="o_setting_left_pane mt16">
+                                        <field name="sequence_validation_tfhka"/>
+                                    </div>
+                                    <div class="o_setting_right_pane mt16">
+                                        <label for="sequence_validation_tfhka" string="Validar Secuencias TFHKA"/>
+                                        <div class="text-muted">
+                                            Validación de concordancia de secuencias entre Odoo y The Factory HKA.
+                                        </div>
+                                    </div>
+                                    <div class="o_setting_left_pane mt16">
+                                        <field name="ocultar_forma_libre_digital"/>
+                                    </div>
+                                    <div class="o_setting_right_pane mt16">
+                                        <label for="ocultar_forma_libre_digital" string="Ocultar impresión Forma Libre"/>
+                                        <div class="text-muted">
+                                            Oculta la opción de imprimir en Forma Libre cuando facturación digital está activa.
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-6" style="border: 1px solid #ddd; padding: 15px; border-radius: 5px; background-color: #f9f9f9; text-align: center;">
+                                    <div class="form-group">
+                                        <label for="token_auth_tfhka" class="col-form-label">Token de Autenticación API</label>
+                                        <div class="col-sm-12" style="word-wrap: break-word;">
+                                            <field name="token_auth_tfhka" readonly="True" password="True" style="width: 100%;"/>
+                                        </div>
+                                    </div>
+                                    <div class="form-group mt16">
+                                        <button name="action_generate_token_tfhka" 
+                                                type="object" 
+                                                string="Generar Token TFHKA" 
+                                                class="btn-secondary ps-2 w-75" 
+                                                icon="fa-refresh" 
+                                                title="Generar/Renovar Token de Autenticación para TFHKA."
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </setting>
+                </block>
+            </xpath>
+        </field>
+    </record>
+</odoo>

@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_soportehelp_maintenance_apply" model="ir.actions.act_window">
+        <field name="name">Aplicar Pase de Mantenimiento</field>
+        <field name="res_model">soportehelp.maintenance.apply</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <record id="soportehelp_config_form" model="ir.ui.view">
+        <field name="name">soportehelp.config.form</field>
+        <field name="model">soportehelp.config</field>
+        <field name="groups_id" eval="[(4, ref('base.group_system'))]"/>
+        <field name="arch" type="xml">
+            <form string="Configuración de Soporte">
+                <group>
+                    <group>
+                        <field name="name" readonly="1"/>
+                        <field name="state"/>
+                        <field name="enforcement_enabled"/>
+                        <field name="registration_state" readonly="1"/>
+                        <field name="registration_message" readonly="1"/>
+                    </group>
+                    <group>
+                        <field name="service_url"/>
+                        <field name="client_uuid" readonly="1"/>
+                        <field name="api_key" readonly="1" password="True"/>
+                        <field name="hw_fingerprint" readonly="1"/>
+                    </group>
+                </group>
+                <notebook>
+                    <page string="Alertas de Soporte (Pruebas)">
+                        <group>
+                            <group>
+                                <field name="support_alert_active"/>
+                                <field name="support_alert_type"/>
+                            </group>
+                            <group>
+                                <field name="support_alert_message"/>
+                            </group>
+                        </group>
+                        <button name="action_test_trigger_alert" string="🔔 Probar Alerta de Soporte" type="object" class="btn-warning"/>
+                        <button name="action_clear_alert" string="✅ Desactivar Alerta" type="object" class="btn-secondary" invisible="[('support_alert_active', '=', False)]"/>
+                    </page>
+                    <page string="Inventario y Detección">
+
+                        <group>
+                            <group>
+                                <field name="author_fingerprint"/>
+                                <field name="website_fingerprint"/>
+                            </group>
+                            <group>
+                                <field name="module_pattern"/>
+                                <field name="last_inventory_at" readonly="1"/>
+                                <field name="last_inventory" readonly="1"/>
+                            </group>
+                        </group>
+                    </page>
+                    <page string="Cumplimiento">
+                        <group>
+                            <group>
+                                <field name="token_cipher" readonly="1"/>
+                                <field name="token_expiry" readonly="1"/>
+                            </group>
+                            <group>
+                                <field name="maintenance_until" readonly="1"/>
+                                <field name="recovery_token_active" readonly="1"/>
+                                <field name="recovery_token_expiry" readonly="1"/>
+                            </group>
+                        </group>
+                    </page>
+                    <page string="Heartbeat">
+                        <group>
+                            <group>
+                                <field name="heartbeat_frequency_hours"/>
+                                <field name="last_heartbeat" readonly="1"/>
+                            </group>
+                            <group>
+                                <field name="last_heartbeat_status" readonly="1"/>
+                                <field name="inventory_frequency_hours"/>
+                            </group>
+                        </group>
+                    </page>
+                </notebook>
+                <footer>
+                    <button name="action_register" type="object" string="Registrar"
+                            class="btn-primary"/>
+                    <button name="action_run_inventory" type="object" string="Ejecutar Inventario"/>
+                    <button name="action_heartbeat" type="object" string="Enviar Heartbeat"/>
+                    <button name="action_activate" type="object" string="Activar Control"
+                            confirm="¿Confirmas la activación del control de cumplimiento?"
+                            invisible="enforcement_enabled"/>
+                    <button name="action_deactivate" type="object" string="Desactivar Control"
+                            confirm="¿Confirmas la desactivación del control?"
+                            invisible="not enforcement_enabled"/>
+                    <button name="%(action_soportehelp_maintenance_apply)d" type="action"
+                            string="Aplicar Pase de Mantenimiento"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

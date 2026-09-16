@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_l10n_ve_revaluation_wizard_form" model="ir.ui.view">
+        <field name="name">l10n_ve.revaluation.wizard.form</field>
+        <field name="model">l10n_ve.revaluation.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Revaluación Cambiaria al Cierre Fiscal">
+                <field name="state" invisible="1"/>
+                
+                <group invisible="state != 'draft'">
+                    <field name="closing_id" readonly="1" options="{'no_open': True}"/>
+                    <field name="closing_date" readonly="1"/>
+                    <field name="closing_rate"/>
+                    <field name="use_closing_rate" widget="boolean_toggle"/>
+                </group>
+
+                <div invisible="state != 'draft'" class="alert alert-info" role="alert">
+                    Este asistente permite revaluar las cuentas en moneda extranjera (Bancos, CxC, CxP) a la tasa de cierre del ejercicio fiscal. Si decide no aplicar la tasa de cierre, se mantendrán las tasas históricas y no se generarán asientos de ajuste cambiario.
+                </div>
+
+                <group invisible="state != 'preview'">
+                    <field name="preview_line_ids" nolabel="1" readonly="1">
+                        <list create="0" edit="0" delete="0">
+                            <field name="account_id"/>
+                            <field name="foreign_balance"/>
+                            <field name="current_balance"/>
+                            <field name="revalued_balance"/>
+                            <field name="difference"/>
+                            <field name="diff_type"/>
+                        </list>
+                    </field>
+                </group>
+
+                <div invisible="state != 'done'" class="alert alert-success" role="alert">
+                    <p>La revaluación cambiaria ha sido procesada exitosamente.</p>
+                    <p>Se han generado los asientos de ajuste correspondientes y el proceso de cierre fiscal puede continuar.</p>
+                </div>
+
+                <footer>
+                    <button name="action_preview" string="Vista Previa" type="object" class="btn-primary" invisible="state != 'draft'"/>
+                    <button name="action_skip" string="Saltar Revaluación" type="object" class="btn-secondary" invisible="state != 'draft'"/>
+                    
+                    <button name="action_generate" string="Generar Asientos y Continuar" type="object" class="btn-primary" invisible="state != 'preview'"/>
+                    <button special="cancel" string="Volver" class="btn-secondary" invisible="state == 'done'"/>
+
+                    <button special="cancel" string="Cerrar" class="btn-primary" invisible="state != 'done'"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

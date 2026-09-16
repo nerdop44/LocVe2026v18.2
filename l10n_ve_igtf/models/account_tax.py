@@ -1,0 +1,232 @@
+from odoo import api, models, _
+from odoo.tools.misc import formatLang
+from odoo.tools.float_utils import float_round, float_is_zero
+
+
+import logging
+
+_logger = logging.getLogger(__name__)
+
+
+class AccountTax(models.Model):
+    _inherit = "account.tax"
+
+    def _prepare_tax_totals(
+        self,
+        base_lines,
+        currency,
+        is_company_currency_requested=False,
+        tax_lines=None,
+        igtf_base_amount=False,
+    ):
+        """
+        This function add values and calculated of igtf on invoices
+        ---------------
+        Returns: (Return inherited)
+        We add the following values to the dictionary:
+            - igtf :
+                - igtf_base_amount: float
+                - igtf_amount: float
+                - foreign_igtf_amount: float
+                - foreign_igtf_base_amount: float
+                - formatted_igtf_amount: str
+                - formatted_igtf_base_amount: str
+                - formatted_foreign_igtf_amount: str
+                - formatted_foreign_igtf_base_amount: str
+                - apply_igtf: bool
+            - amount_total_igtf : float
+            - formatted_amount_total_igtf: str
+            - foreign_amount_total_igtf: float
+            - formatted_foreign_amount_total_igtf: str
+        """
+       
+       ## _logger.debug("Base Lines: %s", base_lines)
+       ## _logger.debug("Currency: %s", currency)
+        _logger.critical("EJECUTANDO _prepare_tax_totals DEL MODULO IGTF")  # MODIFICADO
+        _logger.info("Base Lines: %s", base_lines)  # MODIFICADO
+        _logger.info("Currency: %s", currency)  # MODIFICADO
+        _logger.info("igtf_base_amount (param): %s", igtf_base_amount)  # MODIFICADO
+        _logger.info("is_company_currency_requested: %s", is_company_currency_requested)  # MODIFICADO
+        _logger.info("Tax Lines: %s", tax_lines)  # MODIFICADO
+
+        res = super()._prepare_tax_totals(
+            base_lines,
+            currency,
+            tax_lines,
+            is_company_currency_requested=is_company_currency_requested,
+        )
+        
+        ##_logger.debug("Initial Res: %s", res)
+        _logger.info("Resultado de super(): %s", res)  # MODIFICADO
+        invoice = self.env["account.move"]
+        order = False
+        apply_igtf = False
+        type_model = ""
+        base_igtf = 0
+        foreign_base_igtf = 0
+        is_igtf_suggested = False
+
+        for base_line in base_lines:
+            type_model = base_line["record"]._name
+            if base_line["record"]._name == "account.move.line":
+                invoice = base_line["record"].move_id
+            if base_line["record"]._name == "sale.order.line":
+             #elif type_model == "sale.order.line":                
+                order = base_line["record"].order_id
+
+        company = self.env.company
+        is_sale = False
+        if type_model == "account.move.line" and invoice:
+            company = invoice.company_id or company
+            if invoice.move_type in ['out_invoice', 'out_refund']:
+                is_sale = True
+        elif type_model == "sale.order.line" and order:
+            company = order.company_id or company
+            is_sale = True
+
+        foreign_currency = company.currency_foreign_id
+        rate = 0
+
+        if type_model == "account.move.line":
+            rate = invoice.foreign_inverse_rate
+        #elif type_model == "sale.order.line": 
+        if type_model == "sale.order.line":
+            rate = order.foreign_inverse_rate
+
+        float_igtf_percentage = (
+            company.igtf_percentage if (invoice and not invoice.is_two_percentage) else 2
+        )
+        igtf_percentage = (float_igtf_percentage or 0) / 100
+
+        if type_model == "account.move.line" and company.show_igtf_suggested_account_move:
+            is_igtf_suggested = True
+            base_igtf = res.get("amount_total", 0)
+            foreign_base_igtf = res.get("foreign_amount_total", 0)
+        # elif type_model == "sale.order.line" and company.show_igtf_suggested_sale_order:
+        if type_model == "sale.order.line" and company.show_igtf_suggested_sale_order:
+            is_igtf_suggested = True
+            base_igtf = res.get("amount_total", 0)
+            foreign_base_igtf = res.get("foreign_amount_total", 0)
+
+        if is_sale and company.taxpayer_type != 'special':
+            is_igtf_suggested = False
+            base_igtf = 0
+            foreign_base_igtf = 0
+
+        if invoice and invoice.bi_igtf:
+            is_igtf_suggested = False
+            base_igtf = invoice.bi_igtf
+            foreign_base_igtf = invoice.bi_igtf * rate
+            if invoice.bi_igtf == res.get("amount_total"):
+                foreign_base_igtf = res.get("foreign_amount_total")
+
+        igtf_base_amount = float_round(base_igtf or 0, precision_rounding=currency.rounding)
+        igtf_foreign_base_amount = float_round(
+            foreign_base_igtf or 0, precision_rounding=foreign_currency.rounding
+        )
+
+        if float_is_zero(igtf_base_amount, precision_rounding=currency.rounding) == False:
+            apply_igtf = True
+
+        foreign_igtf_base_amount = float_round(
+            igtf_foreign_base_amount, precision_rounding=foreign_currency.rounding
+        )
+
+        igtf_amount = float_round(
+            igtf_base_amount * igtf_percentage, precision_rounding=currency.rounding
+        )
+        foreign_igtf_amount = float_round(
+            foreign_igtf_base_amount * igtf_percentage, precision_rounding=foreign_currency.rounding
+        )
+######
+        if "igtf" not in res:
+            res["igtf"] = {}
+       #### res["igtf"] = {}
+        res["igtf"]["apply_igtf"] = apply_igtf
+        res["igtf"]["name"] = f"{float_igtf_percentage} %"
+
+        res["igtf"]["igtf_base_amount"] = igtf_base_amount
+        res["igtf"]["igtf_amount"] = igtf_amount
+        res["igtf"]["foreign_igtf_amount"] = foreign_igtf_amount
+        res["igtf"]["foreign_igtf_base_amount"] = foreign_igtf_base_amount
+
+        res["igtf"]["formatted_igtf_amount"] = formatLang(
+            self.env, igtf_amount, currency_obj=currency
+        )
+        res["igtf"]["formatted_igtf_base_amount"] = formatLang(
+            self.env, igtf_base_amount, currency_obj=currency
+        )
+        res["igtf"]["formatted_foreign_igtf_amount"] = formatLang(
+            self.env, foreign_igtf_amount, currency_obj=foreign_currency
+        )
+        res["igtf"]["formatted_foreign_igtf_base_amount"] = formatLang(
+            self.env, foreign_igtf_base_amount, currency_obj=foreign_currency
+        )
+
+        res["amount_total_igtf"] = float_round(
+            res["amount_total"] + igtf_amount, precision_rounding=currency.rounding
+        )
+        res["formatted_amount_total_igtf"] = formatLang(
+            self.env, res["amount_total_igtf"], currency_obj=currency
+        )
+        res["foreign_amount_total_igtf"] = float_round(
+            res["foreign_amount_total"] + foreign_igtf_amount,
+            precision_rounding=foreign_currency.rounding,
+        )
+        res["formatted_foreign_amount_total_igtf"] = formatLang(
+            self.env, res["foreign_amount_total_igtf"], currency_obj=foreign_currency
+        )
+        res["igtf"]["is_igtf_suggested"] = is_igtf_suggested
+
+        return res
+
+    @api.model
+    def _get_tax_totals_summary(self, base_lines, currency, company, cash_rounding=None):
+        """
+        Inyectar filas de IGTF en la arquitectura unificada para visualización de 3 columnas.
+        """
+        res = super()._get_tax_totals_summary(
+            base_lines=base_lines,
+            currency=currency,
+            company=company,
+            cash_rounding=cash_rounding,
+        )
+        if not res or 'igtf' not in res or not res['igtf'].get('apply_igtf'):
+            return res
+
+        # Obtener datos de IGTF ya calculados por el super() o lógica previa
+        igtf = res['igtf']
+        foreign_currency = company.currency_foreign_id
+        
+        # Insertar filas de IGTF ANTES del Total final en unified_rows
+        unified_rows = res.get('unified_rows', [])
+        if unified_rows:
+            # Encontrar el índice del Total (última fila)
+            total_idx = len(unified_rows) - 1
+            
+            # Fila de Base Imponible IGTF
+            unified_rows.insert(total_idx, {
+                "label": _("(Suggested) BI IGTF") if igtf.get('is_igtf_suggested') else _("BI IGTF"),
+                "usd": igtf.get("formatted_foreign_igtf_base_amount", "0.00 $"),
+                "bs": igtf.get("formatted_igtf_base_amount", "0,00 Bs."),
+                "is_total": False,
+                "is_subtotal": False,
+            })
+            total_idx += 1
+
+            # Fila de Monto IGTF
+            unified_rows.insert(total_idx, {
+                "label": _("IGTF %s") % igtf.get("name", "3%"),
+                "usd": igtf.get("formatted_foreign_igtf_amount", "0.00 $"),
+                "bs": igtf.get("formatted_igtf_amount", "0,00 Bs."),
+                "is_total": False,
+                "is_subtotal": False,
+            })
+            total_idx += 1
+
+            # Actualizar la fila de TOTAL para ser "Total con IGTF"
+            unified_rows[total_idx]["label"] = _("TOTAL CON IGTF")
+            unified_rows[total_idx]["usd"] = res.get("formatted_foreign_amount_total_igtf")
+            unified_rows[total_idx]["bs"] = res.get("formatted_amount_total_igtf")
+
+        return res

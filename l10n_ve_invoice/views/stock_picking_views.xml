@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_picking_form_inherit_l10n_ve_invoice" model="ir.ui.view">
+        <field name="name">stock.picking.form.inherit.l10n_ve_invoice</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <!-- Botón en el header para abrir el wizard -->
+            <xpath expr="//header" position="inside">
+                <button name="action_open_delivery_guide_wizard" 
+                        string="Imprimir Guía de Despacho" 
+                        type="object" 
+                        class="oe_highlight" 
+                        invisible="state != 'done'"/>
+            </xpath>
+            <!-- Pestaña para visualizar los datos fiscales y del transportista -->
+            <xpath expr="//notebook" position="inside">
+                <page string="Guía de Despacho (VE)" name="l10n_ve_delivery_guide">
+                    <group>
+                        <group string="Datos de Transporte">
+                            <field name="l10n_ve_guide_number" readonly="1"/>
+                            <field name="l10n_ve_carrier_name" readonly="1"/>
+                            <field name="l10n_ve_carrier_vat" readonly="1"/>
+                            <field name="l10n_ve_vehicle_plate" readonly="1"/>
+                            <field name="l10n_ve_vehicle_brand" readonly="1"/>
+                        </group>
+                        <group string="Direcciones de Ruta">
+                            <field name="l10n_ve_starting_point" readonly="1"/>
+                            <field name="l10n_ve_ending_point" readonly="1"/>
+                        </group>
+                    </group>
+                    <div class="oe_grey text-muted mt-2">
+                        * Estos campos se completan y actualizan automáticamente al presionar el botón "Imprimir Guía de Despacho" y confirmar el asistente.
+                    </div>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

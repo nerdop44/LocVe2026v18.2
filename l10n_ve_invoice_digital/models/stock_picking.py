@@ -1,0 +1,253 @@
+# -*- coding: utf-8 -*-
+# Remake ING. Nerdo José Pulido Aguirre - Localización Venezolana (LocVe)
+
+from odoo import models, api, fields, _
+from odoo.exceptions import UserError, ValidationError
+from pytz import timezone
+import logging
+import requests
+import json
+
+_logger = logging.getLogger(__name__)
+
+DOCUMENT_TYPE = "04"
+
+
+class EndPoints():
+    BASE_ENDPOINTS = {
+        "emision": "/api/Emision",
+        "ultimo_documento": "/api/UltimoDocumento",
+        "consulta_numeraciones": "/api/ConsultaNumeraciones",
+    }
+
+
+class StockPicking(models.Model):
+    _inherit = 'stock.picking'
+
+    is_digitalized = fields.Boolean(string="Digitalizado TFHKA", default=False, copy=False, tracking=True)
+    show_digital_dispatch_guide = fields.Boolean(string="Mostrar Guía Digital", compute="_compute_visibility_button", copy=False)
+    control_number_tfhka = fields.Char(string="Número Control TFHKA", copy=False)
+
+    def button_validate(self):
+        res = super(StockPicking, self).button_validate()
+        for record in self:
+            if record.company_id.invoice_digital_tfhka and not record.is_digitalized and getattr(record, 'is_dispatch_guide', False) and record.picking_type_id.code != "incoming":
+                record.generate_document_digital() 
+        return res
+
+    def generate_document_digital(self):
+        self.ensure_one()
+        if self.is_digitalized:
+            raise UserError(_("La Guía de Despacho ya ha sido digitalizada.")) 
+        self.query_numbering()
+        document_number = self.get_last_document_number(DOCUMENT_TYPE) + 1
+        document_number_str = str(document_number)
+
+        self.generate_document_data(document_number_str, DOCUMENT_TYPE)
+
+    def get_base_url(self):
+        if self.company_id.url_tfhka:
+            return self.company_id.url_tfhka.rstrip("/")
+        raise UserError(_("La URL de TFHKA no está configurada en la empresa."))
+
+    def get_token(self):
+        if self.company_id.token_auth_tfhka:
+            return self.company_id.token_auth_tfhka
+        raise ValidationError(_("Error de configuración: El token de autenticación TFHKA está vacío."))
+
+    def call_tfhka_api(self, endpoint_key, payload, _retry=False):
+        base_url = self.get_base_url()
+        endpoint = EndPoints.BASE_ENDPOINTS.get(endpoint_key)
+
+        if not endpoint:
+            raise UserError(_("Endpoint '%(endpoint_key)s' no definido.") % {'endpoint_key': endpoint_key})
+
+        url = f"{base_url}{endpoint}"
+        headers = {"Authorization": f"Bearer {self.get_token()}"}
+
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=20)
+        
+            if response.status_code == 200:
+                data = response.json()
+                if str(data.get("codigo")) == "200":
+                    return data
+                elif str(data.get("codigo")) == "203" and data.get("validaciones") and endpoint_key == "ultimo_documento":
+                    return 0
+                else:
+                    _logger.error(_("Error en la respuesta de API TFHKA: %(message)s \n%(validation)s") % {'message': data.get('mensaje'), 'validation': data.get('validaciones')})
+                    raise UserError(_("Error en la API de TFHKA: %(message)s \n%(validation)s") % {'message': data.get('mensaje'), 'validation': data.get('validaciones')})
+            if response.status_code == 401:
+                if not _retry:
+                    _logger.error(_("Error 401: Token expirado. Regenerando..."))
+                    self.company_id.generate_token_tfhka()
+                    return self.call_tfhka_api(endpoint_key, payload, _retry=True)
+                else:
+                    raise UserError(_("Token TFHKA expirado y no se pudo renovar automáticamente."))
+            else:
+                _logger.error(_("Error HTTP %(status_code)s: %(text)s") % {'status_code': response.status_code, 'text': response.text})
+                raise UserError(_("Error HTTP %(status_code)s en TFHKA: %(text)s") % {'status_code': response.status_code, 'text': response.text})
+        except requests.exceptions.RequestException as e:
+            _logger.error(_("Error conectando a TFHKA: %(error)s") % {'error': e})
+            raise UserError(_("Error conectando a TFHKA: %(error)s") % {'error': e})
+
+    def generate_document_data(self, document_number, document_type):
+        document_identification = self.get_document_identification(document_type, document_number)
+        buyer = self.get_buyer()
+        details_items = self.get_item_details()
+        dispatch_guide = self.get_dispatch_guide()
+        additional_information = self.get_additional_information()
+
+        payload = {
+            "documentoElectronico": {
+                "encabezado": {
+                    "identificacionDocumento": document_identification,
+                    "comprador": buyer,
+                    "totales": {
+                        "nroItems": str(len(details_items)),
+                        "montoGravadoTotal": "0.00",
+                        "montoExentoTotal": "0.00",
+                        "subtotal": "0.00",
+                        "subtotalAntesDescuento": "0.00",
+                        "totalAPagar": "0.00",
+                        "totalIVA": "0.00",
+                        "montoTotalConIVA": "0.00",
+                        "totalDescuento": "0.00",
+                    },
+                    "guiaDespacho": dispatch_guide
+                },
+                "detallesItems": details_items,
+            }
+        }
+        if additional_information:
+            payload["documentoElectronico"]["infoAdicional"] = additional_information
+
+        response = self.call_tfhka_api("emision", payload)
+
+        if response:
+            self.is_digitalized = True
+            resultado = response.get("resultado", {})
+            if isinstance(resultado, dict):
+                self.control_number_tfhka = resultado.get("numeroControl")
+            emission_date = fields.Datetime.now().strftime("%d/%m/%Y")
+            self.message_post(
+                body=_("Guía de Despacho digitalizada exitosamente en TFHKA el %(date)s") % {'date': emission_date},  
+                message_type='comment',
+            )
+
+    def get_last_document_number(self, document_type):
+        payload = {
+            "serie": "",
+            "tipoDocumento": document_type,
+        }
+        response = self.call_tfhka_api("ultimo_documento", payload)
+        if response == 0:
+            return 0
+        if isinstance(response, dict) and "numeroDocumento" in response:
+            return int(response["numeroDocumento"]) if response["numeroDocumento"] else 0
+        return int(response) if isinstance(response, (int, str)) and str(response).isdigit() else 0
+
+    def query_numbering(self, series=""):
+        payload = {
+            "serie": series,
+            "tipoDocumento": "",
+            "prefix": ""
+        }
+        response = self.call_tfhka_api("consulta_numeraciones", payload)
+        if response:
+            approves = False
+            for numbering in response.get("numeraciones", []):
+                if int(numbering.get("correlativo", 0)) < int(numbering.get("hasta", 0)):
+                    approves = True
+                    break
+            if approves:
+                return
+            raise UserError(_("El rango de numeración digital de Guías de Despacho TFHKA está agotado."))
+
+    def get_document_identification(self, document_type, document_number):
+        self.ensure_one()
+        now = fields.Datetime.now()
+        user_tz_name = self.env.user.tz or 'America/Caracas'
+        user_tz = timezone(user_tz_name)
+        emission_time = now.astimezone(user_tz).strftime("%I:%M:%S %p").lower()
+        emission_date = now.strftime("%d/%m/%Y")
+
+        return {
+            "tipoDocumento": document_type,
+            "numeroDocumento": document_number,
+            "fechaEmision": emission_date,
+            "horaEmision": emission_time,
+            "serie": "",
+            "sucursal": "",
+            "tipoDeVenta": "Interna",
+            "moneda": "VES",
+        }
+
+    def get_buyer(self):
+        partner = self.partner_id
+        if not partner:
+            raise UserError(_("La Guía de Despacho debe tener un Destinatario/Cliente."))
+        vat = (partner.vat or "").upper().replace("-", "").replace(".", "").strip()
+        tipo_id = vat[0] if vat and vat[0].isalpha() else "J"
+        num_id = vat[1:] if vat and vat[0].isalpha() else (vat or "00000000")
+
+        return {
+            "tipoIdentificacion": tipo_id,
+            "numeroIdentificacion": num_id,
+            "razonSocial": partner.name,
+            "direccion": partner.street or partner.city or "Caracas, Venezuela",
+            "pais": partner.country_id.code or "VE",
+            "telefono": [partner.mobile or partner.phone or "02120000000"],
+            "notificar": "Si",
+            "correo": [partner.email or "destinatario@empresa.com"],
+        }
+
+    def get_item_details(self):
+        details = []
+        counter = 1
+        for move in self.move_ids_without_package:
+            details.append({
+                "numeroLinea": str(counter),
+                "codigoPLU": move.product_id.barcode or move.product_id.default_code or str(move.product_id.id),
+                "indicadorBienoServicio": "1",
+                "descripcion": move.product_id.name,
+                "cantidad": str(move.quantity),
+                "precioUnitario": "0.00",
+                "precioUnitarioDescuento": "0.00",
+                "descuentoMonto": "0.00",
+                "precioItem": "0.00",
+                "precioAntesDescuento": "0.00",
+                "codigoImpuesto": "E",
+                "tasaIVA": "0.00",
+                "valorIVA": "0.00",
+                "valorTotalItem": "0.00",
+            })
+            counter += 1
+        return details
+
+    def get_dispatch_guide(self):
+        return {
+            "receptor": self.get_buyer(),
+            "razonTraslado": "01",
+            "puntoPartida": self.picking_type_id.warehouse_id.partner_id.street or "Almacén Principal",
+            "puntoLlegada": self.partner_id.street or "Dirección del Cliente",
+            "vehiculo": {
+                "placa": getattr(self, 'vehicle_plate', '') or "NA-000",
+                "marca": getattr(self, 'vehicle_brand', '') or "Generico",
+                "modelo": getattr(self, 'vehicle_model', '') or "Generico",
+            },
+            "conductor": {
+                "nombre": getattr(self, 'driver_name', '') or "Conductor Asignado",
+                "cedula": getattr(self, 'driver_cedula', '') or "V-00000000",
+            }
+        }
+
+    def get_additional_information(self):
+        return []
+
+    @api.depends('state', 'is_digitalized')
+    def _compute_visibility_button(self):
+        for record in self:
+            record.show_digital_dispatch_guide = True
+            if record.state == 'done' and not record.is_digitalized and record.company_id.invoice_digital_tfhka:
+                record.show_digital_dispatch_guide = False

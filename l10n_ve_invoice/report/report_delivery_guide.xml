@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_report_delivery_guide" model="ir.actions.report">
+        <field name="name">Guía de Despacho Fiscal</field>
+        <field name="model">account.move</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">l10n_ve_invoice.report_delivery_guide_document</field>
+        <field name="report_file">l10n_ve_invoice.report_delivery_guide_document</field>
+        <field name="print_report_name">'Guia_Despacho_%s' % (object.l10n_ve_guide_number or object.name or '')</field>
+        <field name="binding_type">report</field>
+    </record>
+
+    <template id="report_delivery_guide_document">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="move">
+                <div class="article" t-att-data-oe-model="move._name" t-att-data-oe-id="move.id" style="font-family: 'Helvetica', 'Arial', sans-serif; font-size: 12px; color: #333;">
+                    <link rel="stylesheet" type="text/css" href="/web/static/lib/bootstrap/dist/css/bootstrap.css"/>
+                    
+                    <div class="page">
+                        <!-- Estilos personalizados -->
+                        <style>
+                            .title-box {
+                                border: 2px solid #333;
+                                background-color: transparent;
+                                color: #333;
+                                padding: 12px 8px;
+                                border-radius: 4px;
+                                text-align: center;
+                                font-weight: bold;
+                                margin-bottom: 20px;
+                            }
+                            .section-title {
+                                font-size: 13px;
+                                font-weight: bold;
+                                border-bottom: 2px solid #333;
+                                padding-bottom: 3px;
+                                margin-bottom: 8px;
+                                margin-top: 15px;
+                                text-transform: uppercase;
+                            }
+                            .data-table td {
+                                padding: 3px 5px;
+                                border: none;
+                            }
+                            .product-table th {
+                                background-color: #f2f2f2;
+                                border: 1px solid #ddd;
+                                padding: 6px;
+                                font-weight: bold;
+                                text-align: center;
+                            }
+                            .product-table td {
+                                border: 1px solid #ddd;
+                                padding: 6px;
+                            }
+                            .footer-note {
+                                margin-top: 30px;
+                                border-top: 1px dashed #bbb;
+                                padding-top: 10px;
+                                font-size: 10px;
+                                text-align: center;
+                                color: #666;
+                            }
+                        </style>
+
+                        <!-- Cabecera / Membrete -->
+                        <div class="row">
+                            <div class="col-6">
+                                <img t-if="move.company_id.logo" t-att-src="image_data_uri(move.company_id.logo)" style="max-height: 80px; max-width: 200px;" alt="Logo Empresa"/>
+                                <div class="mt-2">
+                                    <strong><span t-field="move.company_id.name"/></strong><br/>
+                                    <span>RIF: <span t-field="move.company_id.vat"/></span><br/>
+                                    <span>Dirección: <span t-field="move.company_id.street"/> <span t-field="move.company_id.street2"/></span>
+                                </div>
+                            </div>
+                            <div class="col-6 text-end">
+                                <div class="title-box">
+                                    <h4 style="margin: 0; font-size: 16px; font-weight: bold; letter-spacing: 1px;">GUÍA DE DESPACHO</h4>
+                                </div>
+                                <div>
+                                    <strong>NRO. GUÍA: </strong><span style="font-size: 14px; color: #721c24; font-weight: bold;" t-field="move.l10n_ve_guide_number"/><br/>
+                                    <strong>Fecha de Emisión: </strong><span t-field="move.invoice_date" t-options='{"widget": "date", "format": "dd/MM/yyyy"}'/><br/>
+                                    <strong>Factura Ref: </strong><span t-field="move.name"/><br/>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Datos del Destinatario -->
+                        <div class="section-title">Datos del Destinatario / Cliente</div>
+                        <table class="table table-sm data-table" style="margin-bottom: 0;">
+                            <tr>
+                                <td style="width: 15%;"><strong>Nombre / Razón:</strong></td>
+                                <td style="width: 50%;"><span t-field="move.partner_id.name"/></td>
+                                <td style="width: 15%;"><strong>RIF / Cédula:</strong></td>
+                                <td style="width: 20%;"><span t-field="move.partner_id.vat"/></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Teléfono:</strong></td>
+                                <td><span t-field="move.partner_id.phone"/></td>
+                                <td><strong>Contacto:</strong></td>
+                                <td><span t-field="move.partner_id.mobile"/></td>
+                            </tr>
+                        </table>
+
+                        <!-- Datos del Traslado y Transportista -->
+                        <div class="section-title">Información del Traslado e Identificación del Vehículo</div>
+                        <table class="table table-sm data-table" style="margin-bottom: 0;">
+                            <tr>
+                                <td style="width: 15%;"><strong>Transportista:</strong></td>
+                                <td style="width: 50%;"><span t-field="move.l10n_ve_carrier_name"/></td>
+                                <td style="width: 15%;"><strong>Cédula/RIF:</strong></td>
+                                <td style="width: 20%;"><span t-field="move.l10n_ve_carrier_vat"/></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Vehículo (Marca):</strong></td>
+                                <td><span t-field="move.l10n_ve_vehicle_brand"/></td>
+                                <td><strong>Placa:</strong></td>
+                                <td><span t-field="move.l10n_ve_vehicle_plate"/></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Punto de Partida:</strong></td>
+                                <td colspan="3"><span t-field="move.l10n_ve_starting_point"/></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Punto de Destino:</strong></td>
+                                <td colspan="3"><span t-field="move.l10n_ve_ending_point"/></td>
+                            </tr>
+                        </table>
+
+                        <!-- Detalle de Productos -->
+                        <div class="section-title">Detalle de Bienes / Mercancía</div>
+                        <table class="table table-sm product-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 15%;">Código</th>
+                                    <th style="width: 55%; text-align: left;">Descripción de la Mercancía</th>
+                                    <th style="width: 15%;">Cantidad Despachada</th>
+                                    <th style="width: 15%;">Unidad</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="move.invoice_line_ids.filtered(lambda l: l.display_type not in ('line_section', 'line_note'))" t-as="line">
+                                    <t t-if="line.quantity > 0">
+                                        <tr>
+                                            <td style="text-align: center;"><span t-field="line.product_id.default_code"/></td>
+                                            <td>
+                                                <span t-field="line.product_id.name"/><br/>
+                                                <small class="text-muted" t-field="line.name"/>
+                                            </td>
+                                            <td style="text-align: right;">
+                                                <span t-field="line.quantity"/>
+                                            </td>
+                                            <td style="text-align: center;">
+                                                <span t-field="line.product_uom_id.name"/>
+                                            </td>
+                                        </tr>
+                                    </t>
+                                </t>
+                            </tbody>
+                        </table>
+
+                        <!-- Firmas / Recepción -->
+                        <div class="row" style="margin-top: 50px;">
+                            <div class="col-4 text-center">
+                                <div style="border-top: 1px solid #333; width: 80%; margin: 0 auto; padding-top: 5px;">
+                                    <strong>Despachado por</strong><br/>
+                                    <span style="font-size: 10px;">Firma y Sello</span>
+                                </div>
+                            </div>
+                            <div class="col-4 text-center">
+                                <div style="border-top: 1px solid #333; width: 80%; margin: 0 auto; padding-top: 5px;">
+                                    <strong>Transportado por</strong><br/>
+                                    <span style="font-size: 10px;">Firma y C.I.</span>
+                                </div>
+                            </div>
+                            <div class="col-4 text-center">
+                                <div style="border-top: 1px solid #333; width: 80%; margin: 0 auto; padding-top: 5px;">
+                                    <strong>Recibido conforme</strong><br/>
+                                    <span style="font-size: 10px;">Nombre, Firma, C.I., Fecha y Sello</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Nota de Pie de Página -->
+                        <div class="footer-note">
+                            <div style="font-size: 11px; color: #555555; text-align: center; font-weight: bold; margin-bottom: 8px; width: 100%;">
+                                *** DOCUMENTO NO FISCAL — SIN DERECHO A CRÉDITO FISCAL ***
+                            </div>
+                            <span>Esta guía ampara única y exclusivamente el traslado de los bienes aquí descritos. No representa factura ni nota de entrega. Prohibida su venta. Exigido por las Providencias del SENIAT.</span>
+                        </div>
+                    </div>
+                </div>
+            </t>
+        </t>
+    </template>
+</odoo>

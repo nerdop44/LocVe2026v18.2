@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_wizard_accounting_reports,locve_wizard_accounting_reports,model_wizard_accounting_reports,base.group_user,1,1,1,1
+access_l10n_ve_delivery_guide_wizard,l10n_ve_delivery_guide_wizard,model_l10n_ve_delivery_guide_wizard,base.group_user,1,1,1,1
+access_l10n_ve_free_form_void,l10n_ve_free_form_void,model_l10n_ve_free_form_void,base.group_user,1,1,1,0
+access_l10n_ve_void_control_wizard,l10n_ve_void_control_wizard,model_l10n_ve_void_control_wizard,base.group_user,1,1,1,1

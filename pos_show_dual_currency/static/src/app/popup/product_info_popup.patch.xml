@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-name="pos_show_dual_currency.ProductInfoPopup" t-inherit="point_of_sale.ProductInfoPopup" t-inherit-mode="extension">
+        <!-- Target the generic inventory section or financial section if possible. 
+             Fallback to main container if specific sections aren't found. 
+             Using properties table common in Odoo 18 Popups -->
+        <xpath expr="//*[1]" position="inside">
+             <div class="product-info-section section-dual-currency border-top pt-2 mt-2" 
+                  style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border: 1px solid #eee; border-radius: 5px; margin: 10px;">
+                <span class="label fw-bold text-muted">Precio Dual:</span>
+                <div class="d-flex flex-column align-items-end">
+                    <span class="value fw-bold text-primary" style="font-size: 1.2em;">
+                         <t t-esc="mainPrice"/>
+                    </span>
+                    <span class="value fw-bold text-danger" style="font-size: 1.1em;">
+                         <t t-esc="priceInRefCurrency"/>
+                    </span>
+                </div>
+             </div>
+        </xpath>
+    </t>
+</templates>

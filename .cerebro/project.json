@@ -1,0 +1,10 @@
+{
+  "cerebro_id": "LocVe_2026_v18.2",
+  "cerebro_root": "/home/nerdop/Cerebros Odoo",
+  "protocol_version": "1.0",
+  "paths": {
+    "obsidian_note": "Obsidian_Vault/LocVe_2026_v18.2.md",
+    "graph_report": "grafos/LocVe_2026_v18.2/GRAPH_REPORT.md",
+    "session_brief": ".cerebro/SESSION_BRIEF.md"
+  }
+}

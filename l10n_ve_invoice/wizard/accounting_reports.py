@@ -1,0 +1,1317 @@
+import logging
+from datetime import datetime
+from io import BytesIO
+
+import xlsxwriter
+from dateutil.relativedelta import relativedelta
+from odoo import fields, models, _
+from odoo.exceptions import UserError
+from xlsxwriter import utility
+
+_logger = logging.getLogger(__name__)
+INIT_LINES = 8
+
+
+class WizardAccountingReportsLocVeInvoice(models.TransientModel):
+    _name = "wizard.accounting.reports"
+    _description = "Wizard para generar reportes de libro de compra y ventas"
+    _check_company_auto = True
+
+    def _default_check_currency_system(self):
+        is_system_currency_bs = self.env.company.currency_id.name == "VEF"
+        return is_system_currency_bs
+
+    def _default_date_to(self):
+        current_day = fields.Date.context_today(self)
+        return current_day
+
+    def _default_date_from(self):
+        current_day = self._default_date_to()
+        final_day_month = relativedelta(months=-1)
+        increment_date = current_day + final_day_month
+        return increment_date
+
+    def _default_company_id(self):
+        company_id = self.env.company.id
+        return company_id
+
+    report = fields.Selection(
+        [("purchase", "Book Purchase"), ("sale", "Sale Book")],
+        required=True,
+    )
+
+    date_from = fields.Date(string="Date Start", required=True, default=_default_date_from)
+
+    date_to = fields.Date(
+        string="Date End",
+        required=True,
+        default=_default_date_to,
+    )
+
+    company_id = fields.Many2one("res.company", default=_default_company_id)
+
+    currency_system = fields.Boolean(string="Report in currency system", default=False)
+
+    def _fields_sale_book_line(self, move, taxes):
+        if not move.invoice_date:
+            raise UserError(_("Check the move %s does not have an invoice date and its id is %s", move.name, move.id))
+        doc_type = self._determinate_type(move.move_type)
+        # Resolución de factura afectada: NC usa reversed_entry_id, ND usa debit_origin_id
+        affected_name = "--"
+        if move.reversed_entry_id:
+            affected_name = move.reversed_entry_id.name or "--"
+        elif hasattr(move, 'debit_origin_id') and move.debit_origin_id:
+            affected_name = move.debit_origin_id.name or "--"
+        
+        control_num = move.correlative or getattr(move, 'nro_ctrl', None) or getattr(move, 'l10n_ve_control_number', None) or "--"
+        if not control_num or str(control_num).strip().lower() in ('false', 'none', ''):
+            control_num = "--"
+
+        return {
+            "_id": move.id,
+            "document_date": self._format_date(move.invoice_date),
+            "accounting_date": self._format_date(move.date),
+            "vat": move.vat or (move.partner_id.vat if move.partner_id else "--"),
+            "partner_name": move.invoice_partner_display_name or (move.partner_id.name if move.partner_id else "--"),
+            "document_number": move.name,
+            "invoice_number": move.name if doc_type == "FAC" else "--",
+            "debit_number": move.name if doc_type == "ND" else "--",
+            "credit_number": move.name if doc_type == "NC" else "--",
+            "move_type": doc_type,
+            "transaction_type": self._determinate_transaction_type(move),
+            "number_invoice_affected": affected_name,
+            "correlative": control_num,
+            "reduced_aliquot": 0.08,
+            "general_aliquot": 0.16,
+            "total_sales_iva": taxes.get("amount_untaxed", 0) + taxes.get("amount_taxed", 0),
+            "total_sales_not_iva": taxes.get("tax_base_exempt_aliquot", 0),
+            "amount_reduced_aliquot": taxes.get("amount_reduced_aliquot", 0),
+            "amount_general_aliquot": taxes.get("amount_general_aliquot", 0),
+            "tax_base_reduced_aliquot": taxes.get("tax_base_reduced_aliquot", 0),
+            "tax_base_general_aliquot": taxes.get("tax_base_general_aliquot", 0),
+            "igtf_percibido": taxes.get("igtf_perceived", 0.0),
+        }
+
+    def _fields_purchase_book_line(self, move, taxes):
+        if not move.invoice_date:
+            raise UserError(_("Check the move %s does not have an invoice date and its id is %s", move.name, move.id))
+        doc_type = self._determinate_type(move.move_type)
+        # En compras: el Nro de Documento del Proveedor es ref si está presente
+        doc_number = (move.ref and str(move.ref).strip()) or move.name
+        
+        # Resolución de Nro de Control del Proveedor
+        control_num = move.correlative or getattr(move, 'nro_ctrl', None) or getattr(move, 'l10n_ve_control_number', None) or getattr(move, 'ref', None) or "--"
+        if not control_num or str(control_num).strip().lower() in ('false', 'none', ''):
+            control_num = "--"
+
+        # Resolución de factura afectada en Compras: NC/ND de proveedor
+        affected_name = "--"
+        if move.reversed_entry_id:
+            affected_name = move.reversed_entry_id.ref or move.reversed_entry_id.name or "--"
+        elif hasattr(move, 'debit_origin_id') and move.debit_origin_id:
+            affected_name = move.debit_origin_id.ref or move.debit_origin_id.name or "--"
+
+        fields_purchase_book_line = {
+            "_id": move.id,
+            "document_date": self._format_date(move.invoice_date),
+            "accounting_date": self._format_date(move.date),
+            "vat": move.vat or (move.partner_id.vat if move.partner_id else "--"),
+            "partner_name": move.invoice_partner_display_name or (move.partner_id.name if move.partner_id else "--"),
+            "document_number": doc_number,
+            "move_type": doc_type,
+            "transaction_type": self._determinate_transaction_type(move),
+            "number_invoice_affected": affected_name,
+            "correlative": control_num,
+            "reduced_aliquot": 0.08,
+            "extend_aliquot": 0.31,
+            "general_aliquot": 0.16,
+            "total_purchases_iva": taxes.get("amount_untaxed", 0) + taxes.get("amount_taxed", 0),
+            "total_purchases_not_iva": taxes.get("tax_base_exempt_aliquot", 0),
+            "amount_reduced_aliquot": taxes.get("amount_reduced_aliquot", 0),
+            "amount_general_aliquot": taxes.get("amount_general_aliquot", 0),
+            "amount_extend_aliquot": taxes.get("amount_extend_aliquot", 0),
+            "tax_base_reduced_aliquot": taxes.get("tax_base_reduced_aliquot", 0),
+            "tax_base_general_aliquot": taxes.get("tax_base_general_aliquot", 0),
+            "tax_base_extend_aliquot": taxes.get("tax_base_extend_aliquot", 0),
+        }
+        if self.company_id.config_deductible_tax and self.report == "purchase":
+            fields_purchase_book_line.update(
+                {
+                    "reduced_aliquot_no_deductible": 0.08,
+                    "extend_aliquot_no_deductible": 0.31,
+                    "general_aliquot_no_deductible": 0.16,
+                    "amount_reduced_aliquot_no_deductible": taxes.get("amount_reduced_aliquot_no_deductible", 0),
+                    "amount_general_aliquot_no_deductible": taxes.get("amount_general_aliquot_no_deductible", 0),
+                    "amount_extend_aliquot_no_deductible": taxes.get("amount_extend_aliquot_no_deductible", 0),
+                    "tax_base_reduced_aliquot_no_deductible": taxes.get("tax_base_reduced_aliquot_no_deductible", 0),
+                    "tax_base_general_aliquot_no_deductible": taxes.get("tax_base_general_aliquot_no_deductible", 0),
+                    "tax_base_extend_aliquot_no_deductible": taxes.get("tax_base_extend_aliquot_no_deductible", 0),
+                }
+            )
+        return fields_purchase_book_line
+
+    def parse_sale_book_data(self):
+        sale_book_lines = []
+        moves = self.search_moves()
+
+        for move in moves:
+            taxes = self._determinate_amount_taxeds(move)
+            sale_book_line = self._fields_sale_book_line(move, taxes)
+            sale_book_lines.append(sale_book_line)
+        return sale_book_lines
+
+    def parse_purchase_book_data(self):
+        purchase_book_lines = []
+        moves = self.search_moves()
+
+        for move in moves:
+            taxes = self._determinate_amount_taxeds(move)
+            purchase_book_line = self._fields_purchase_book_line(move, taxes)
+            purchase_book_lines.append(purchase_book_line)
+
+        return purchase_book_lines
+
+    def _determinate_resume_books(self, moves, tax_type=None):
+        def check_future_dates(move):
+            if not move.date:
+                return False
+            return self.date_from <= move.date <= self.date_to
+
+        def filter_credit_notes(move):
+            return move.move_type in ["out_refund", "in_refund"]
+
+        moves = moves.filtered(check_future_dates)
+        credit_notes = moves.filtered(filter_credit_notes)
+        regular_moves = moves - credit_notes
+
+        def get_totals(move_list, base_key, tax_key):
+            base_sum = 0.0
+            tax_sum = 0.0
+            for m in move_list:
+                d = self._determinate_amount_taxeds(m)
+                base_sum += abs(d.get(base_key, 0.0))
+                tax_sum += abs(d.get(tax_key, 0.0))
+            return base_sum, tax_sum
+
+        if tax_type == "exempt_aliquot":
+            b_reg, t_reg = get_totals(regular_moves, "tax_base_exempt_aliquot", "amount_exempt_aliquot")
+            b_cn, t_cn = get_totals(credit_notes, "tax_base_exempt_aliquot", "amount_exempt_aliquot")
+            return [b_reg, t_reg, b_cn, t_cn]
+
+        elif tax_type == "general_aliquot":
+            b_reg, t_reg = get_totals(regular_moves, "tax_base_general_aliquot", "amount_general_aliquot")
+            b_cn, t_cn = get_totals(credit_notes, "tax_base_general_aliquot", "amount_general_aliquot")
+            return [b_reg, t_reg, b_cn, t_cn]
+
+        elif tax_type == "reduced_aliquot":
+            b_reg, t_reg = get_totals(regular_moves, "tax_base_reduced_aliquot", "amount_reduced_aliquot")
+            b_cn, t_cn = get_totals(credit_notes, "tax_base_reduced_aliquot", "amount_reduced_aliquot")
+            return [b_reg, t_reg, b_cn, t_cn]
+
+        elif tax_type == "extend_aliquot":
+            b_reg, t_reg = get_totals(regular_moves, "tax_base_extend_aliquot", "amount_extend_aliquot")
+            b_cn, t_cn = get_totals(credit_notes, "tax_base_extend_aliquot", "amount_extend_aliquot")
+            return [b_reg, t_reg, b_cn, t_cn]
+
+        elif tax_type == "total_period":
+            categories = ["exempt_aliquot", "general_aliquot", "reduced_aliquot", "extend_aliquot"]
+            t_b_reg, t_t_reg, t_b_cn, t_t_cn = 0.0, 0.0, 0.0, 0.0
+            for cat in categories:
+                res = self._determinate_resume_books(moves, cat)
+                t_b_reg += res[0]
+                t_t_reg += res[1]
+                t_b_cn += res[2]
+                t_t_cn += res[3]
+            return [t_b_reg, t_t_reg, t_b_cn, t_t_cn]
+
+        return [0.0, 0.0, 0.0, 0.0]
+
+    def sale_book_fields(self):
+        sale_fields = [
+            {
+                "name": "N° operacion",
+                "field": "index",
+            },
+            {
+                "name": "Fecha del documento",
+                "field": "document_date",
+                "size": 15,
+            },
+            {"name": "RIF", "field": "vat", "size": 15},
+            {
+                "name": "Nombre/Razón Social",
+                "field": "partner_name",
+                "size": 25,
+            },
+            {
+                "name": "Tipo",
+                "field": "move_type",
+                "size": 6,
+            },
+            {
+                "name": "N° Factura",
+                "field": "invoice_number",
+                "size": 20,
+            },
+            {
+                "name": "N° Nota de Débito",
+                "field": "debit_number",
+                "size": 20,
+            },
+            {
+                "name": "N° Nota de Crédito",
+                "field": "credit_number",
+                "size": 20,
+            },
+            {
+                "name": "Nª de Control",
+                "field": "correlative",
+            },
+            {"name": "Tipo de Transacción", "field": "transaction_type"},
+            {
+                "name": "N° Factura Afectada",
+                "field": "number_invoice_affected",
+                "size": 15,
+            },
+            {
+                "name": "Total ventas con IVA",
+                "field": "total_sales_iva",
+                "format": "number",
+                "size": 15,
+            },
+            {
+                "name": "Total ventas exentas",
+                "field": "total_sales_not_iva",
+                "format": "number",
+                "size": 15,
+            },
+            {
+                "name": "Base imponible (16%)",
+                "field": "tax_base_general_aliquot",
+                "format": "number",
+                "size": 15,
+            },
+            {
+                "name": "Alicuota (16%)",
+                "field": "general_aliquot",
+                "format": "percent",
+                "size": 15,
+            },
+            {
+                "name": "IVA 16%",
+                "field": "amount_general_aliquot",
+                "format": "number",
+            },
+            {
+                "name": "IGTF Percibido (3%)",
+                "field": "igtf_percibido",
+                "format": "number",
+                "size": 15,
+            },
+        ]
+
+        if not self.company_id.not_show_reduced_aliquot_sale:
+            fields_info = [
+                ("Base imponible (8%)", "tax_base_reduced_aliquot", "number"),
+                ("Alicuota (8%)", "reduced_aliquot", "percent"),
+                ("IVA 8%", "amount_reduced_aliquot", "number")
+            ]
+
+            sale_fields.extend([
+                {"name": name, "field": field, "format": format_type, "size": 15}
+                for name, field, format_type in fields_info
+            ])
+
+        # if not self.company_id.not_show_extend_aliquot_sale:
+            # fields_info = [
+            #     ("Base imponible (31%)", "tax_base_extend_aliquot", "number"),
+            #     ("Alicuota (31%)", "extend_aliquot", "percent"),
+            #     ("IVA 31%", "amount_extend_aliquot", "number")
+            # ]
+
+            # sale_fields.extend([
+            #     {"name": name, "field": field, "format": format_type, "size": 15}
+            #     for name, field, format_type in fields_info
+            # ])
+
+        return sale_fields
+    
+    def purchase_book_fields(self):
+        purchase_fields = [
+            {
+                "name": "N° operacion",
+                "field": "index",
+            },
+            {
+                "name": "Fecha del documento",
+                "field": "document_date",
+                "size": 15,
+            },
+            {"name": "RIF", "field": "vat", "size": 15},
+            {
+                "name": "Nombre/Razón Social",
+                "field": "partner_name",
+                "size": 25,
+            },
+            {
+                "name": "Tipo",
+                "field": "move_type",
+                "size": 6,
+            },
+            {
+                "name": "N° de documento",
+                "field": "document_number",
+                "size": 20,
+            },
+            {
+                "name": "Nª de Control",
+                "field": "correlative",
+                "size": 15,
+            },
+            {"name": "Tipo de Transacción", "field": "transaction_type"},
+            {
+                "name": "NFactura Afectada",
+                "field": "number_invoice_affected",
+                "size": 15,
+            },
+            {
+                "name": "Total compras con IVA",
+                "field": "total_purchases_iva",
+                "format": "number",
+                "size": 15,
+            },
+            {
+                "name": "Total compras exentas",
+                "field": "total_purchases_not_iva",
+                "format": "number",
+                "size": 15,
+            },
+            {
+                "name": "Base imponible (16%)",
+                "field": "tax_base_general_aliquot",
+                "format": "number",
+                "size": 15,
+            },
+            {
+                "name": "Alicuota (16%)",
+                "field": "general_aliquot",
+                "format": "percent",
+                "size": 15,
+            },
+            {
+                "name": "IVA 16%",
+                "field": "amount_general_aliquot",
+                "format": "number",
+                "size": 15,
+            },
+        ]
+
+        if not self.company_id.not_show_reduced_aliquot_purchase:
+            fields_info = [
+                ("Base imponible (8%)", "tax_base_reduced_aliquot", "number"),
+                ("Alicuota (8%)", "reduced_aliquot", "percent"),
+                ("IVA 8%", "amount_reduced_aliquot", "number")
+            ]
+
+            purchase_fields.extend([
+                {"name": name, "field": field, "format": format_type, "size": 15}
+                for name, field, format_type in fields_info
+            ])
+
+        if not self.company_id.not_show_extend_aliquot_purchase:
+            fields_info = [
+                ("Base imponible (31%)", "tax_base_extend_aliquot", "number"),
+                ("Alicuota (31%)", "extend_aliquot", "percent"),
+                ("IVA 31%", "amount_extend_aliquot", "number")
+            ]
+
+            purchase_fields.extend([
+                {"name": name, "field": field, "format": format_type, "size": 15}
+                for name, field, format_type in fields_info
+            ])
+        
+        if self.company_id.config_deductible_tax:
+            purchase_fields = self.not_deductible_purchase_book_fields(purchase_fields)
+
+        return purchase_fields
+    
+    def not_deductible_purchase_book_fields(self, purchase_fields):
+        
+        if self.company_id.no_deductible_general_aliquot_purchase:
+            fields_info = [
+                ("Base imponible", "tax_base_general_aliquot_no_deductible", "number"),
+                ("Alicuota (16%)", "general_aliquot_no_deductible", "percent"),
+                ("Credito Fiscal No deducible (16%)", "amount_general_aliquot_no_deductible", "number")
+            ]
+
+            purchase_fields.extend([
+                {"name": name, "field": field, "format": format_type, "size": 15}
+                for name, field, format_type in fields_info
+            ])
+
+        if self.company_id.no_deductible_reduced_aliquot_purchase:
+            fields_info = [
+                ("Base imponible", "tax_base_reduced_aliquot_no_deductible", "number"),
+                ("Alicuota (8%)", "reduced_aliquot_no_deductible", "percent"),
+                ("Credito Fiscal No deducible (8%)", "amount_reduced_aliquot_no_deductible", "number")
+            ]
+
+            purchase_fields.extend([
+                {"name": name, "field": field, "format": format_type, "size": 15}
+                for name, field, format_type in fields_info
+            ])
+
+        if self.company_id.no_deductible_extend_aliquot_purchase:
+            fields_info = [
+                ("Base imponible", "tax_base_extend_aliquot_no_deductible", "number"),
+                ("Alicuota (31%)", "extend_aliquot_no_deductible", "percent"),
+                ("Credito Fiscal No deducible (31%)", "amount_extend_aliquot_no_deductible", "number")
+            ]
+
+            purchase_fields.extend([
+                {"name": name, "field": field, "format": format_type, "size": 15}
+                for name, field, format_type in fields_info
+            ])
+
+        return purchase_fields
+
+    def resume_book_headers(self):
+        credit_or_debit_based_on_report_type = {"purchase": "Crédito", "sale": "Débito"}
+        HEADERS = ("Base Imponible", f"{credit_or_debit_based_on_report_type[self.report]} Fiscal")
+
+        return [
+            {
+                "name": "Resumen",
+                "field": "resume",
+                "headers": [
+                    "",
+                    f"{credit_or_debit_based_on_report_type[self.report]}s Fiscales",
+                ],
+            },
+            {"name": "Facturas/Notas de Débito", "field": "inv_debit_notes", "headers": HEADERS},
+            {
+                "name": "Notas de Crédito",
+                "field": "credit_notes",
+                "headers": HEADERS,
+            },
+            {"name": "Total Neto", "field": "total", "headers": HEADERS},
+        ]
+
+    def _get_domain(self):
+        search_domain = []
+        is_purchase = self.report == "purchase"
+
+        search_domain += [("company_id", "=", self.company_id.id)]
+
+        move_type = (
+            ["out_invoice", "out_refund"]
+            if not is_purchase
+            else ["in_invoice", "in_refund", "in_debit"]
+        )
+
+        search_domain += [("date", ">=", self.date_from)]
+        search_domain += [("date", "<=", self.date_to)]
+        search_domain += [
+            ("state", "in", ("posted", "cancel")),
+            ("move_type", "in", move_type),
+            ("correlative", "not in", ['/',False])
+        ]
+
+        return search_domain
+
+    def generate_report(self):
+        is_sale = self.report == "sale"
+
+        if is_sale:
+            return self.download_sales_book()
+
+        return self.download_purchases_book()
+
+    def download_sales_book(self):
+        self.ensure_one()
+        url = "/web/download_sales_book?company_id=%s" % self.company_id.id
+        return {"type": "ir.actions.act_url", "url": url, "target": "self"}
+
+    def download_purchases_book(self):
+        self.ensure_one()
+        url = "/web/download_purchase_book?company_id=%s" % self.company_id.id
+        return {"type": "ir.actions.act_url", "url": url, "target": "self"}
+
+    def _format_date(self, date):
+        _fn = datetime.strptime(str(date), "%Y-%m-%d")
+        return _fn.strftime("%d/%m/%Y")
+
+    def _determinate_type(self, move_type):
+        types = {
+            "out_debit": "ND",
+            "in_debit": "ND",
+            "out_invoice": "FAC",
+            "in_invoice": "FAC",
+            "out_refund": "NC",
+            "in_refund": "NC",
+        }
+
+        return types[move_type]
+
+    def _determinate_transaction_type(self, move):
+        if move.move_type in ["out_invoice", "in_invoice"] and move.state == "posted":
+            return "01-REG"
+
+        if move.move_type in ["out_debit", "in_debit"] and move.state == "posted":
+            return "02-REG"
+
+        if move.move_type in ["out_refund", "in_refund"] and move.state == "posted":
+            return "03-REG"
+
+        if move.move_type in [
+            "out_refund",
+            "out_debit",
+            "out_invoice",
+            "in_refund",
+            "in_debit",
+            "in_invoice",
+        ] and move.state in ["cancel"]:
+            return "03-ANU"
+
+    def search_moves(self):
+        order = "invoice_date asc" if self.report == "purchase" else "correlative asc"
+        env = self.env
+        move_model = env["account.move"]
+        domain = self._get_domain()
+        moves = move_model.search(domain, order=order)
+        return moves
+
+    def _resume_sale_book_fields(self, moves):
+        return [
+            {
+                "name": "Ventas Internas no Gravadas",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "exempt_aliquot"),
+            },
+            {
+                "name": "Exportaciones Gravadas por Alícuota General",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "export_general"),
+            },
+            {
+                "name": "Exportaciones Gravadas por Alícuota General más Adicional",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "export_extend"),
+            },
+            {
+                "name": "Ventas Internas Gravadas sólo por Alícuota General",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "general_aliquot"),
+            },
+            {
+                "name": "Ventas Internas Gravadas por Alícuota General más Adicional",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "extend_aliquot"),
+            },
+            {
+                "name": "Ventas Internas Gravadas por Alícuota Reducida",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "reduced_aliquot"),
+            },
+            {
+                "name": "Ajustes a los Débitos Fiscales de Periodos Anteriores",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "previous_adjustments"),
+            },
+            {
+                "name": "Total Ventas y Débitos Fiscales del Periodo",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "total_period"),
+                "total": True,
+            },
+        ]
+
+    def _resume_purchase_book_fields(self, moves):
+        return [
+            {
+                "name": "Compras Internas no Gravadas",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "exempt_aliquot"),
+            },
+            {
+                "name": "Importaciones Gravadas por Alícuota General",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "import_general"),
+            },
+            {
+                "name": "Importaciones Gravadas por Alícuota General más Adicional",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "import_extend"),
+            },
+            {
+                "name": "Compras Internas Gravadas sólo por Alícuota General",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "general_aliquot"),
+            },
+            {
+                "name": "Compras Internas Gravadas por Alícuota General más Adicional",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "extend_aliquot"),
+            },
+            {
+                "name": "Compras Internas Gravadas por Alícuota Reducida",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "reduced_aliquot"),
+            },
+            {
+                "name": "Ajustes a los Créditos Fiscales de Periodos Anteriores",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "previous_adjustments"),
+            },
+            {
+                "name": "Total Compras y Créditos Fiscales del Periodo",
+                "format": "number",
+                "values": self._determinate_resume_books(moves, "total_period"),
+                "total": True,
+            },
+        ]
+
+    def _determinate_amount_taxeds(self, move):
+        is_posted = move.state == "posted"
+        # 1. Valores por defecto (Garantizan que siempre haya un dict con ceros)
+        tax_result = {
+            "amount_untaxed": 0.0,
+            "amount_taxed": 0.0,
+            "tax_base_exempt_aliquot": 0.0,
+            "amount_exempt_aliquot": 0.0,
+            "tax_base_reduced_aliquot": 0.0,
+            "tax_base_general_aliquot": 0.0,
+            "tax_base_extend_aliquot": 0.0,
+            "amount_reduced_aliquot": 0.0,
+            "amount_general_aliquot": 0.0,
+            "amount_extend_aliquot": 0.0,
+            "igtf_perceived": 0.0,
+        }
+
+        if self.company_id.config_deductible_tax and self.report == "purchase":
+            tax_result.update({
+                "tax_base_reduced_aliquot_no_deductible": 0.0,
+                "tax_base_general_aliquot_no_deductible": 0.0,
+                "tax_base_extend_aliquot_no_deductible": 0.0,
+                "amount_reduced_aliquot_no_deductible": 0.0,
+                "amount_general_aliquot_no_deductible": 0.0,
+                "amount_extend_aliquot_no_deductible": 0.0,
+            })
+
+        if not is_posted:
+            return tax_result
+
+        is_credit_note = move.move_type in ["out_refund", "in_refund"]
+        multiplier = -1 if is_credit_note else 1
+        
+        # 2. Obtener configuraciones de grupos de impuestos (IDs)
+        # Fallback: exempt_aliquot (l10n_ve_binaural) OR exent_aliquot (l10n_ve_tax)
+        co = self.company_id
+        if self.report == "sale":
+            _exempt_tax = getattr(co, 'exempt_aliquot_sale', False) or getattr(co, 'exent_aliquot_sale', False)
+            exent_aliquot = _exempt_tax.tax_group_id.id if _exempt_tax else False
+            reduced_aliquot = co.reduced_aliquot_sale.tax_group_id.id if co.reduced_aliquot_sale else False
+            general_aliquot = co.general_aliquot_sale.tax_group_id.id if co.general_aliquot_sale else False
+            extend_aliquot = co.extend_aliquot_sale.tax_group_id.id if co.extend_aliquot_sale else False
+        else:
+            _exempt_tax = getattr(co, 'exempt_aliquot_purchase', False) or getattr(co, 'exent_aliquot_purchase', False)
+            exent_aliquot = _exempt_tax.tax_group_id.id if _exempt_tax else False
+            reduced_aliquot = co.reduced_aliquot_purchase.tax_group_id.id if co.reduced_aliquot_purchase else False
+            general_aliquot = co.general_aliquot_purchase.tax_group_id.id if co.general_aliquot_purchase else False
+            extend_aliquot = co.extend_aliquot_purchase.tax_group_id.id if co.extend_aliquot_purchase else False
+
+        # 2b. Obtener IDs de grupos de impuestos No Deducibles (solo compras)
+        no_ded_general = False
+        no_ded_reduced = False
+        no_ded_extend = False
+        if co.config_deductible_tax and self.report == "purchase":
+            no_ded_general = co.no_deductible_general_aliquot_purchase.tax_group_id.id if co.no_deductible_general_aliquot_purchase else False
+            no_ded_reduced = co.no_deductible_reduced_aliquot_purchase.tax_group_id.id if co.no_deductible_reduced_aliquot_purchase else False
+            no_ded_extend = co.no_deductible_extend_aliquot_purchase.tax_group_id.id if co.no_deductible_extend_aliquot_purchase else False
+
+        # 3. EXTRACCIÓN DIRECTA DE LÍNEAS (VERDAD CONTABLE)
+        total_untaxed_bs = 0.0
+        total_tax_bs = 0.0
+        
+        for line in move.line_ids:
+            # En Odoo 18, balance es en moneda de compañía (VEF/VES)
+            val = abs(line.balance) if self.currency_system else abs(line.foreign_balance)
+            
+            # Líneas de Producto (Base Imponible)
+            if line.display_type == 'product':
+                total_untaxed_bs += val
+                tax_group_ids = line.tax_ids.mapped('tax_group_id.id')
+                signed_val = val * multiplier
+                if exent_aliquot in tax_group_ids or not line.tax_ids:
+                    tax_result["tax_base_exempt_aliquot"] += signed_val
+                elif no_ded_reduced and no_ded_reduced in tax_group_ids:
+                    tax_result["tax_base_reduced_aliquot_no_deductible"] = tax_result.get("tax_base_reduced_aliquot_no_deductible", 0) + signed_val
+                elif no_ded_general and no_ded_general in tax_group_ids:
+                    tax_result["tax_base_general_aliquot_no_deductible"] = tax_result.get("tax_base_general_aliquot_no_deductible", 0) + signed_val
+                elif no_ded_extend and no_ded_extend in tax_group_ids:
+                    tax_result["tax_base_extend_aliquot_no_deductible"] = tax_result.get("tax_base_extend_aliquot_no_deductible", 0) + signed_val
+                elif reduced_aliquot in tax_group_ids:
+                    tax_result["tax_base_reduced_aliquot"] += signed_val
+                elif general_aliquot in tax_group_ids:
+                    tax_result["tax_base_general_aliquot"] += signed_val
+                elif extend_aliquot in tax_group_ids:
+                    tax_result["tax_base_extend_aliquot"] += signed_val
+                else:
+                    tax_result["tax_base_general_aliquot"] += signed_val
+            
+            # Líneas de Impuesto (Cuota Tributaria)
+            if line.tax_line_id:
+                total_tax_bs += val
+                group_id = line.tax_line_id.tax_group_id.id
+                signed_tax = val * multiplier
+                
+                if line.tax_line_id.tax_group_id and 'IGTF' in line.tax_line_id.tax_group_id.name.upper():
+                    tax_result["igtf_perceived"] += signed_tax
+                elif group_id == exent_aliquot:
+                    tax_result["amount_exempt_aliquot"] += signed_tax
+                elif no_ded_reduced and group_id == no_ded_reduced:
+                    tax_result["amount_reduced_aliquot_no_deductible"] = tax_result.get("amount_reduced_aliquot_no_deductible", 0) + signed_tax
+                elif no_ded_general and group_id == no_ded_general:
+                    tax_result["amount_general_aliquot_no_deductible"] = tax_result.get("amount_general_aliquot_no_deductible", 0) + signed_tax
+                elif no_ded_extend and group_id == no_ded_extend:
+                    tax_result["amount_extend_aliquot_no_deductible"] = tax_result.get("amount_extend_aliquot_no_deductible", 0) + signed_tax
+                elif group_id == reduced_aliquot:
+                    tax_result["amount_reduced_aliquot"] += signed_tax
+                elif group_id == general_aliquot:
+                    tax_result["amount_general_aliquot"] += signed_tax
+                elif group_id == extend_aliquot:
+                    tax_result["amount_extend_aliquot"] += signed_tax
+                else:
+                    tax_result["amount_general_aliquot"] += signed_tax
+
+        # 4. Asignar totales generales operacionales sincronizados con el encabezado bimonetario global
+        # Esto elimina descalces de centavos entre Pantalla, PDF y Libros Fiscales
+        header_untaxed_bs = abs(getattr(move, 'amount_untaxed_bs', 0.0) or 0.0)
+        header_tax_bs = abs(getattr(move, 'amount_tax_bs', 0.0) or 0.0)
+        
+        if header_untaxed_bs > 0.0:
+            final_untaxed_bs = header_untaxed_bs
+            # Ajustar la alícuota general o exenta si hubo redondeos por línea
+            sum_bases = (tax_result["tax_base_exempt_aliquot"] + tax_result["tax_base_reduced_aliquot"] + 
+                         tax_result["tax_base_general_aliquot"] + tax_result["tax_base_extend_aliquot"])
+            diff_base = (final_untaxed_bs * multiplier) - sum_bases
+            if abs(diff_base) > 0.0001:
+                if tax_result["tax_base_general_aliquot"] != 0:
+                    tax_result["tax_base_general_aliquot"] += diff_base
+                elif tax_result["tax_base_exempt_aliquot"] != 0:
+                    tax_result["tax_base_exempt_aliquot"] += diff_base
+                elif tax_result["tax_base_reduced_aliquot"] != 0:
+                    tax_result["tax_base_reduced_aliquot"] += diff_base
+                elif tax_result["tax_base_extend_aliquot"] != 0:
+                    tax_result["tax_base_extend_aliquot"] += diff_base
+                else:
+                    tax_result["tax_base_general_aliquot"] = final_untaxed_bs * multiplier
+        else:
+            final_untaxed_bs = total_untaxed_bs
+
+        if header_tax_bs > 0.0 or (move.amount_tax == 0.0 and header_tax_bs == 0.0):
+            final_tax_bs = header_tax_bs
+            sum_taxes = (tax_result["amount_exempt_aliquot"] + tax_result["amount_reduced_aliquot"] + 
+                         tax_result["amount_general_aliquot"] + tax_result["amount_extend_aliquot"])
+            diff_tax = (final_tax_bs * multiplier) - sum_taxes
+            if abs(diff_tax) > 0.0001:
+                if tax_result["amount_general_aliquot"] != 0 or tax_result["tax_base_general_aliquot"] != 0:
+                    tax_result["amount_general_aliquot"] += diff_tax
+                elif tax_result["amount_reduced_aliquot"] != 0:
+                    tax_result["amount_reduced_aliquot"] += diff_tax
+                elif tax_result["amount_extend_aliquot"] != 0:
+                    tax_result["amount_extend_aliquot"] += diff_tax
+        else:
+            final_tax_bs = total_tax_bs
+
+        tax_result["amount_untaxed"] = final_untaxed_bs * multiplier
+        tax_result["amount_taxed"] = final_tax_bs * multiplier
+        
+        # 5. Calcular IGTF percibido de los pagos asociados si aplica
+        payments_igtf = 0.0
+        if hasattr(move, 'invoice_payments_widget') and move.invoice_payments_widget:
+            content = move.invoice_payments_widget.get('content', []) if isinstance(move.invoice_payments_widget, dict) else []
+            for payment_info in content:
+                pay_id = payment_info.get('account_payment_id')
+                if pay_id:
+                    payment = move.env['account.payment'].browse(pay_id)
+                    if payment.is_igtf_on_foreign_exchange and payment.igtf_amount:
+                        if self.currency_system:
+                            rate = move.foreign_rate or (hasattr(payment, 'foreign_rate') and payment.foreign_rate) or 1.0
+                            payments_igtf += payment.igtf_amount * rate
+                        else:
+                            payments_igtf += payment.igtf_amount
+        tax_result["igtf_perceived"] += payments_igtf * multiplier
+        
+        # LOG DE TRAZABILIDAD (Se verá en Odoo.sh -> Logs -> Odoo)
+        _logger.warning("V70 [Verdad Contable] Move: %s | Base: %s | Tax: %s | Lineas Prod: %s", 
+                        move.name, tax_result["amount_untaxed"], tax_result["amount_taxed"], 
+                        len(move.line_ids.filtered(lambda l: l.display_type == 'product')))
+
+        return tax_result
+    
+########
+    
+#    def _determinate_amount_taxeds(self, move):
+#        is_posted = move.state == "posted"
+#        vef_base = self.company_id.currency_id.id == self.env.ref("base.VEF").id
+
+#        if not is_posted:
+#            fields_in_zero = {
+#                "amount_untaxed": 0.0,
+#                "amount_taxed": 0.0,
+#                "tax_base_exempt_aliquot": 0.0,
+#                "amount_exempt_aliquot": 0.0,
+#                "tax_base_reduced_aliquot": 0.0,
+#                "tax_base_general_aliquot": 0.0,
+#                "tax_base_extend_aliquot": 0.0,
+#                "amount_reduced_aliquot": 0.0,
+#                "amount_general_aliquot": 0.0,
+#                "amount_extend_aliquot": 0.0,
+#            }
+
+#           if self.company_id.config_deductible_tax and self.report == "purchase":
+#                fields_in_zero.update(
+#                    {
+#                        "tax_base_reduced_aliquot_no_deductible": 0.0,
+#                        "tax_base_general_aliquot_no_deductible": 0.0,
+#                        "tax_base_extend_aliquot_no_deductible": 0.0,
+#                        "amount_reduced_aliquot_no_deductible": 0.0,
+#                        "amount_general_aliquot_no_deductible": 0.0,
+#                        "amount_extend_aliquot_no_deductible": 0.0,
+#                    }
+#                )
+#            return fields_in_zero
+
+#        is_credit_note = move.move_type in ["out_refund", "in_refund"]
+
+#        tax_totals = move.tax_totals
+
+#        tax_result = {}
+
+#        is_check_currency_system = self.currency_system
+
+#        if is_check_currency_system:
+#            fields_taxed = ("amount_untaxed", "amount_total", "groups_by_subtotal")
+#        else:
+#            fields_taxed = (
+#                "foreign_amount_untaxed",
+#                "foreign_amount_total",
+#                "groups_by_foreign_subtotal",
+#            )
+
+#        amount_untaxed = (
+#            tax_totals.get(fields_taxed[0]) * -1
+#            if is_credit_note and tax_totals.get(fields_taxed[0])
+#            else tax_totals.get(fields_taxed[0])
+#        ) if tax_totals else 0
+
+#        amount_taxed = (
+#            tax_totals.get(fields_taxed[1]) * -1
+#            if is_credit_note and tax_totals.get(fields_taxed[1])
+#            else tax_totals.get(fields_taxed[1])
+#        ) if tax_totals else 0
+
+#        tax_result.update(
+#            {
+#                "amount_untaxed": amount_untaxed,
+#                "amount_taxed": amount_taxed,
+#                "tax_base_exempt_aliquot": 0,
+#                "amount_exempt_aliquot": 0,
+#                "tax_base_reduced_aliquot": 0,
+#                "amount_reduced_aliquot": 0,
+#                "tax_base_general_aliquot": 0,
+#                "amount_general_aliquot": 0,
+#                "tax_base_extend_aliquot": 0,
+#                "amount_extend_aliquot": 0,
+#            }
+#        )
+#        if not tax_totals:
+#            return tax_result
+
+#        if self.company_id.config_deductible_tax and self.report == "purchase":
+#            tax_result.update(
+#                {
+#                    "tax_base_reduced_aliquot_no_deductible": 0.0,
+#                    "tax_base_general_aliquot_no_deductible": 0.0,
+#                    "tax_base_extend_aliquot_no_deductible": 0.0,
+#                    "amount_reduced_aliquot_no_deductible": 0.0,
+#                    "amount_general_aliquot_no_deductible": 0.0,
+#                    "amount_extend_aliquot_no_deductible": 0.0,
+#                }
+#            )
+
+#        is_currency_system = (
+#            "groups_by_subtotal"
+#            if (vef_base and self.currency_system) or self.currency_system
+#            else "groups_by_foreign_subtotal"
+#        )
+#        tax_base = tax_totals.get(is_currency_system)
+
+#        for base in tax_base.items():
+#            taxes = base[1]
+
+#            exent_aliquot = False
+#            general_aliquot = False
+#            reduced_aliquot = False
+#            extend_aliquot = False
+
+#            if self.report == "sale":
+#                exent_aliquot = self.company_id.exent_aliquot_sale.tax_group_id.id
+#                reduced_aliquot = self.company_id.reduced_aliquot_sale.tax_group_id.id
+#                general_aliquot = self.company_id.general_aliquot_sale.tax_group_id.id
+#                extend_aliquot = self.company_id.extend_aliquot_sale.tax_group_id.id
+#            else:
+#                exent_aliquot = self.company_id.exent_aliquot_purchase.tax_group_id.id
+#                reduced_aliquot = self.company_id.reduced_aliquot_purchase.tax_group_id.id
+#                general_aliquot = self.company_id.general_aliquot_purchase.tax_group_id.id
+#                extend_aliquot = self.company_id.extend_aliquot_purchase.tax_group_id.id
+#                if self.company_id.config_deductible_tax:
+#                    general_aliquot_no_deductible = self.company_id.no_deductible_general_aliquot_purchase.tax_group_id.id
+#                    reduced_aliquot_no_deductible = self.company_id.no_deductible_reduced_aliquot_purchase.tax_group_id.id
+#                    extend_aliquot_no_deductible = self.company_id.no_deductible_extend_aliquot_purchase.tax_group_id.id
+
+#            for tax in taxes:
+#                tax_group_id = tax.get("tax_group_id")
+
+#                is_exempt = tax_group_id == exent_aliquot
+#                if is_exempt:
+#                    tax_result.update(
+#                        {
+#                            "tax_base_exempt_aliquot": tax.get("tax_group_base_amount"),
+#                            "amount_exempt_aliquot": tax.get("tax_group_amount"),
+#                        }
+#                    )
+
+#                is_reduced_aliquot = tax_group_id == reduced_aliquot
+#                if is_reduced_aliquot:
+#                    tax_result.update(
+#                       {
+#                            "tax_base_reduced_aliquot": tax.get("tax_group_base_amount"),
+#                            "amount_reduced_aliquot": tax.get("tax_group_amount"),
+#                        }
+#                    )
+
+#                    continue
+
+#                is_general_aliquot = tax_group_id == general_aliquot
+#                if is_general_aliquot:
+#                    tax_result.update(
+#                        {
+#                            "tax_base_general_aliquot": tax.get("tax_group_base_amount"),
+#                            "amount_general_aliquot": tax.get("tax_group_amount"),
+#                        }
+#                    )
+
+#                    continue
+
+#                is_extend_aliquot = tax_group_id == extend_aliquot
+#                if is_extend_aliquot:
+#                    tax_result.update(
+#                        {
+#                            "tax_base_extend_aliquot": tax.get("tax_group_base_amount"),
+#                            "amount_extend_aliquot": tax.get("tax_group_amount"),
+#                        }
+#                    )
+                
+#                if self.company_id.config_deductible_tax and self.report == "purchase":
+
+#                    is_reduced_aliquot_no_deductible = tax_group_id == reduced_aliquot_no_deductible
+#                    if is_reduced_aliquot_no_deductible:
+#                        tax_result.update(
+#                           {
+#                                "tax_base_reduced_aliquot_no_deductible": tax.get("tax_group_base_amount"),
+#                                "amount_reduced_aliquot_no_deductible": tax.get("tax_group_amount"),
+#                           }
+#                        )
+
+#                        continue
+
+#                    is_general_aliquot_no_deductible = tax_group_id == general_aliquot_no_deductible
+#                    if is_general_aliquot_no_deductible:
+#                        tax_result.update(
+#                            {
+#                                "tax_base_general_aliquot_no_deductible": tax.get("tax_group_base_amount"),
+#                                "amount_general_aliquot_no_deductible": tax.get("tax_group_amount"),
+#                            }
+#                        )
+
+#                        continue
+
+#                    is_extend_aliquot_no_deductible = tax_group_id == extend_aliquot_no_deductible
+#                    if is_extend_aliquot_no_deductible:
+#                        tax_result.update(
+#                            {
+#                                "tax_base_extend_aliquot_no_deductible": tax.get("tax_group_base_amount"),
+#                               "amount_extend_aliquot_no_deductible": tax.get("tax_group_amount"),
+#                            }
+#                        )
+
+#        return tax_result
+######
+    def generate_sales_book(self, company_id):
+        self.company_id = company_id
+        sale_book_lines = self.parse_sale_book_data()
+        file = BytesIO()
+
+        workbook = xlsxwriter.Workbook(file, {"in_memory": True, "nan_inf_to_errors": True})
+        worksheet = workbook.add_worksheet()
+
+        # cell formats
+        cell_bold = workbook.add_format(
+            {"bold": True, "center_across": True, "text_wrap": True, "bottom": True}
+        )
+        merge_format = workbook.add_format(
+            {"bold": 1, "border": 1, "align": "center", "valign": "vcenter", "fg_color": "gray"}
+        )
+        cell_formats = {
+            "number": workbook.add_format({"num_format": "#,##0.00"}),
+            "percent": workbook.add_format({"num_format": "0.00%"}),
+        }
+
+        # header
+        worksheet.merge_range(
+            "C1:M1",
+            f"{self.company_id.name} - {self.company_id.vat}",
+            workbook.add_format({"bold": True, "center_across": True, "font_size": 18}),
+        )
+        worksheet.merge_range(
+            "C2:M2",
+            f"Direccion:  {self.company_id.street}",
+            cell_bold,
+        )
+        worksheet.merge_range("C3:M3", "Libro de Ventas", cell_bold)
+        worksheet.merge_range(
+            "C4:M4",
+            (
+                f"Desde {self._format_date(self.date_from)}"
+                f" Hasta {self._format_date(self.date_to)}"
+            ),
+            cell_bold,
+        )
+
+        name_columns = self.sale_book_fields()
+        total_idx = INIT_LINES
+
+        for index, field in enumerate(name_columns):
+            worksheet.set_column(index, index, len(field.get("name")) + 2)
+            worksheet.merge_range(6, index, 7, index, field.get("name"), merge_format)
+
+            for index_line, line in enumerate(sale_book_lines):
+                total_idx = (8 + index_line) + 1
+
+                if field["field"] == "index":
+                    worksheet.write(INIT_LINES + index_line, index, index_line + 1)
+                else:
+                    cell_format = cell_formats.get(field.get("format"), workbook.add_format())
+                    worksheet.write(
+                        INIT_LINES + index_line, index, line.get(field["field"]), cell_format
+                    )
+
+            if field.get("format") == "number":
+                col = utility.xl_col_to_name(index)
+                worksheet.write_formula(
+                    total_idx, index, f"=SUM({col}9:{col}{total_idx})", cell_formats.get("number")
+                )
+
+        self.generate_book_resume(worksheet, total_idx, merge_format, cell_formats)
+
+        workbook.close()
+        return file.getvalue()
+
+    def generate_purchases_book(self, company_id):
+        self.company_id = company_id
+        purchase_book_lines = self.parse_purchase_book_data()
+        file = BytesIO()
+
+        workbook = xlsxwriter.Workbook(file, {"in_memory": True, "nan_inf_to_errors": True})
+        worksheet = workbook.add_worksheet()
+
+        # cell formats
+        cell_bold = workbook.add_format(
+            {"bold": True, "center_across": True, "text_wrap": True, "bottom": True}
+        )
+        merge_format = workbook.add_format(
+            {"bold": 1, "border": 1, "align": "center", "valign": "vcenter", "fg_color": "gray"}
+        )
+        cell_formats = {
+            "number": workbook.add_format({"num_format": "#,##0.00"}),
+            "percent": workbook.add_format({"num_format": "0.00%"}),
+        }
+
+        # header
+        worksheet.merge_range(
+            "C1:M1",
+            f"{self.company_id.name} - {self.company_id.vat}",
+            workbook.add_format({"bold": True, "center_across": True, "font_size": 18}),
+        ) 
+        worksheet.merge_range(
+            "C2:M2",
+            f"Direccion:  {self.company_id.street}",
+            cell_bold,
+        )
+        worksheet.merge_range("C3:M3", "Libro de Compras", cell_bold)
+        worksheet.merge_range(
+            "C4:M4",
+            (
+                f"Desde {self._format_date(self.date_from)}"
+                f" Hasta {self._format_date(self.date_to)}"
+            ),
+            cell_bold,
+        )
+
+        company = self.company_id
+        if self.company_id.config_deductible_tax:            
+            row_buy_national = 3
+
+            if company.not_show_reduced_aliquot_purchase or company.not_show_extend_aliquot_purchase:
+                if company.not_show_reduced_aliquot_purchase != company.not_show_extend_aliquot_purchase:
+                    row_buy_national -= 1
+                else:
+                    row_buy_national = 1
+
+            ranges = {
+                1: "L6:N6",
+                2: "L6:Q6",
+                3: "L6:T6",
+            }
+
+            buy_rows = ranges.get(row_buy_national, "")
+            worksheet.merge_range(
+                buy_rows, 
+                "COMPRAS NACIONALES DEDUCIBLES", 
+                merge_format
+            )
+
+            range_limit_n = len(
+                company.no_deductible_general_aliquot_purchase +
+                company.no_deductible_reduced_aliquot_purchase +
+                company.no_deductible_extend_aliquot_purchase
+            )
+            if range_limit_n:
+                ranges_init = {
+                    1: "O6",
+                    2: "R6",
+                    3: "U6",
+                }
+                buy_rows_not_credit_init = ranges_init.get(row_buy_national, "")
+
+                ranges_limit = {
+                    3: {1: "W6", 2: "Z6", 3: "AC6"},
+                    2: {1: "T6", 2: "W6", 3: "Z6"},
+                    1: {1: "Q6", 2: "T6", 3: "W6"},
+                }
+                buy_rows_not_credit_limit = ranges_limit.get(row_buy_national, {}).get(range_limit_n, "")
+
+                buy_rows_not_credit = f"{buy_rows_not_credit_init}:{buy_rows_not_credit_limit}"
+
+                worksheet.merge_range(
+                    buy_rows_not_credit,
+                    (
+                        "COMPRAS NACIONALES SIN DERECHO A CREDITO FISCAL"
+                    ),
+                    merge_format,
+                )
+
+        name_columns = self.purchase_book_fields()
+        total_idx = INIT_LINES
+
+        for index, field in enumerate(name_columns):
+            worksheet.set_column(index, index, len(field.get("name")) + 2)
+            worksheet.merge_range(6, index, 7, index, field.get("name"), merge_format)
+
+            for index_line, line in enumerate(purchase_book_lines):
+                total_idx = (8 + index_line) + 1
+                if field["field"] == "index":
+                    worksheet.write(INIT_LINES + index_line, index, index_line + 1)
+                else:
+                    cell_format = cell_formats.get(field.get("format"), workbook.add_format())
+                    worksheet.write(
+                        INIT_LINES + index_line, index, line.get(field["field"]), cell_format
+                    )
+
+            if field.get("format") == "number":
+                col = utility.xl_col_to_name(index)
+                worksheet.write_formula(
+                    total_idx, index, f"=SUM({col}9:{col}{total_idx})", cell_formats.get("number")
+                )
+
+        self.generate_book_resume(worksheet, total_idx, merge_format, cell_formats)
+
+        workbook.close()
+        return file.getvalue()
+
+    def generate_book_resume(self, worksheet, index_to_start, merge_format, cell_formats):
+        is_purchase = self.report == "purchase"
+        header_idx = index_to_start + 2
+        resume_headers = self.resume_book_headers()
+
+        for idx, header in enumerate(resume_headers):
+            nidx = idx * 2
+            worksheet.merge_range(
+                header_idx, nidx, header_idx, nidx + 1, header.get("name"), merge_format
+            )
+            worksheet.write(header_idx + 1, nidx, header.get("headers")[0])
+            worksheet.write(header_idx + 1, nidx + 1, header.get("headers")[1])
+
+        moves = self.search_moves()
+        resume_columns = (
+            self._resume_purchase_book_fields(moves)
+            if is_purchase
+            else self._resume_sale_book_fields(moves)
+        )
+
+        for idx, resume in enumerate(resume_columns):
+            row_resume = (index_to_start + 4) + idx
+
+            worksheet.write(row_resume, 0, idx + 1)
+            worksheet.write(row_resume, 1, resume.get("name"))
+
+            total_line = 0
+            for idx_line, line in enumerate(resume.get("values")):
+                total_line = idx_line + 2
+                worksheet.write(row_resume, idx_line + 2, line, cell_formats.get("number"))
+
+            if not is_purchase:
+                if resume.get("total"):
+                    total_c_formula = f"=SUM(C{index_to_start + 5}:C{row_resume})"
+                    total_d_formula = f"=SUM(D{index_to_start + 5}:D{row_resume})"
+
+                    worksheet.write_formula(
+                        row_resume, 2, total_c_formula, cell_formats.get("number")
+                    )
+                    worksheet.write_formula(
+                        row_resume, 3, total_d_formula, cell_formats.get("number")
+                    )
+
+            else:
+                if resume.get("total"):
+                    total_c_formula = f"=SUM(C{index_to_start + 5}:C{row_resume})"
+                    total_d_formula = f"=SUM(D{index_to_start + 5}:D{row_resume})"
+
+                    worksheet.write_formula(
+                        row_resume, 2, total_c_formula, cell_formats.get("number")
+                    )
+                    worksheet.write_formula(
+                        row_resume, 3, total_d_formula, cell_formats.get("number")
+                    )
+
+            column_bi_range = (
+                f"C{row_resume + 1}:{utility.xl_col_to_name(total_line - 1)}{row_resume + 1}"
+            )
+            column_df_range = (
+                f"D{row_resume + 1}:{utility.xl_col_to_name(total_line)}{row_resume + 1}"
+            )
+            imposed_formula = (
+                f"=SUMPRODUCT(--({column_bi_range}), --(MOD(COLUMN({column_bi_range}), 2)=1))"
+            )
+            debit_formula = (
+                f"=SUMPRODUCT(--({column_df_range}), --(MOD(COLUMN({column_df_range}), 2)=0))"
+            )
+
+            worksheet.write_formula(
+                row_resume, total_line + 1, imposed_formula, cell_formats.get("number")
+            )
+            worksheet.write_formula(
+                row_resume, total_line + 2, debit_formula, cell_formats.get("number")
+            )

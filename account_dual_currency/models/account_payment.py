@@ -1,0 +1,313 @@
+from odoo import api, fields, models, _
+from odoo.tools import float_round
+from odoo.exceptions import UserError
+
+
+class AccountPayment(models.Model):
+    _inherit = 'account.payment'
+
+    def _valid_field_parameter(self, field_name, parameter):
+        return super()._valid_field_parameter(field_name, parameter)
+
+
+    tax_today = fields.Float(string="Tasa de Pago", default=lambda self: self._get_default_tasa(), digits=(16, 4))
+    currency_id_dif = fields.Many2one("res.currency",
+                                      string="Divisa de Referencia",
+                                      default=lambda self: self.env.company.currency_id_dif )
+    currency_id_company = fields.Many2one("res.currency",
+                                          string="Divisa compañia",
+                                          default=lambda self: self.env.company.currency_id)
+    amount_local = fields.Monetary(string="Importe local", currency_field='currency_id_company')
+    amount_ref = fields.Monetary(string="Importe referencia", currency_field='currency_id_dif')
+    currency_equal = fields.Boolean(compute="_currency_equal")
+    move_id_dif = fields.Many2one(
+        'account.move', 'Asiento contable diferencia',  # required=True,
+        readonly=True,
+        help="Asiento contable de diferencia en tipo de cambio")
+
+    currency_id_name = fields.Char(string="Nombre de Divisa", related="currency_id.name")
+    journal_igtf_id = fields.Many2one('account.journal', string='Diario IGTF', check_company=True)
+    aplicar_igtf_divisa = fields.Boolean(string="Aplicar IGTF")
+    igtf_divisa_porcentage = fields.Float('% IGTF', related='company_id.igtf_divisa_porcentage')
+
+    mount_igtf = fields.Monetary(currency_field='currency_id', string='Importe IGTF', readonly=True)
+
+    amount_total_pagar = fields.Monetary(currency_field='currency_id', string="Total Pagar(Importe + IGTF):",
+                                         readonly=True)
+
+    move_id_igtf_divisa = fields.Many2one(
+        'account.move', 'Asiento IGTF Divisa',
+        readonly=True)
+
+    def _get_default_tasa(self):
+        return self.env.company.currency_id_dif.inverse_rate
+
+    @api.depends('tax_today')
+    def _compute_rate(self):
+        super()._compute_rate()
+
+    @api.depends('currency_id_dif','currency_id','amount','tax_today')
+    def _currency_equal(self):
+        for rec in self:
+            currency_equal = rec.currency_id_company != rec.currency_id
+            if rec.currency_id_company.name == 'USD':
+                if currency_equal:
+                    rec.amount_local = rec.amount / rec.tax_today if rec.tax_today > 0 else 0
+                    rec.amount_ref = rec.amount
+                else:
+                    rec.amount_local = rec.amount
+                    rec.amount_ref = rec.amount * rec.tax_today
+            else:
+                if currency_equal:
+                    rec.amount_local = rec.amount * rec.tax_today
+                    rec.amount_ref = rec.amount
+                else:
+                    rec.amount_local = rec.amount
+                    rec.amount_ref = (rec.amount / rec.tax_today) if rec.amount > 0 and rec.tax_today > 0 else 0
+            rec.currency_equal = currency_equal
+
+            if rec.aplicar_igtf_divisa:
+                if rec.currency_id.name == 'USD':
+                    rec.mount_igtf = rec.amount * rec.igtf_divisa_porcentage / 100
+                    rec.amount_total_pagar = rec.mount_igtf + rec.amount
+                else:
+                    rec.mount_igtf = 0
+                    rec.amount_total_pagar = rec.amount
+            else:
+                rec.mount_igtf = 0
+                rec.amount_total_pagar = rec.amount
+
+    def action_draft(self):
+        ''' posted -> draft '''
+        is_admin = self.env.su or self.env.user.has_group('base.group_system') or self.env.user.has_group('account.group_account_manager')
+        ctx_debug = self.env.context.get('debug') or self.env.context.get('params', {}).get('debug')
+        is_debug_mode = bool(ctx_debug) or self.env.su
+
+        if not (is_admin and is_debug_mode):
+            raise UserError(_("La acción 'Restablecer a Borrador' en Pagos está restringida exclusivamente para Administradores del Sistema con el Modo Desarrollador (Debug Mode) activo."))
+
+        res = super().action_draft()
+        self.move_id_dif.button_draft()
+        if self.move_id_igtf_divisa:
+            if self.move_id_igtf_divisa.state == 'done':
+                self.move_id_igtf_divisa.button_draft()
+
+    def action_cancel(self):
+        ''' draft -> cancelled '''
+        res = super().action_cancel()
+        self.move_id_dif.button_cancel()
+        if self.move_id_igtf_divisa:
+            self.move_id_igtf_divisa.button_cancel()
+
+    def action_post(self):
+        res = super().action_post()
+        ''' draft -> posted '''
+        self.move_id_dif._post(soft=False)
+        """Genera la retencion IGTF """
+        for pago in self:
+            if not pago.move_id_igtf_divisa:
+                if pago.aplicar_igtf_divisa:
+                    pago.register_move_igtf_divisa_payment()
+            else:
+                if pago.move_id_igtf_divisa.state == 'draft':
+                    pago.move_id_igtf_divisa.action_post()
+
+
+    def register_move_igtf_divisa_payment(self):
+        '''Este método realiza el asiento contable de la comisión según el porcentaje que indica la compañia'''
+        #self.env['ir.sequence'].with_context(ir_sequence_date=self.date_advance).next_by_code(sequence_code)
+        diario = self.journal_igtf_id or self.journal_id
+        vals = {
+            'date': self.date,
+            'journal_id': diario.id,
+            'currency_id': self.currency_id.id,
+            'state': 'draft',
+            'tax_today':self.tax_today,
+            'ref':self.ref,
+            'move_type': 'entry',
+            'line_ids': False
+        }
+
+        move_id = self.env['account.move'].with_context(check_move_validity=False).create(vals)
+        line_ids = [(5, 0, 0),(0,0,
+                {
+                    'account_id': diario.company_id.account_journal_payment_debit_account_id.id if self.payment_type == 'inbound' else diario.company_id.account_journal_payment_credit_account_id.id,
+                    'company_id': self.company_id.id,
+                    'currency_id': self.currency_id.id,
+                    'date_maturity': False,
+                    'ref': "Comisión IGTF Divisa",
+                    'date': self.date,
+                    'partner_id': self.partner_id.id,
+                    'name': "Comisión IGTF Divisa",
+                    'journal_id': self.journal_id.id,
+                    'credit': float(self.mount_igtf * self.tax_today) if not self.payment_type == 'inbound' else float(0.0),
+                    'debit': float(self.mount_igtf * self.tax_today) if self.payment_type == 'inbound' else float(0.0),
+                    'amount_currency': -self.mount_igtf if not self.payment_type == 'inbound' else self.mount_igtf,
+                }),
+                (0,0,{
+                    'account_id': self.company_id.account_debit_wh_igtf_id.id if self.payment_type == 'inbound' else self.company_id.account_credit_wh_igtf_id.id,
+                    'company_id': self.company_id.id,
+                    'currency_id': self.currency_id.id,
+                    'date_maturity': False,
+                    'ref': "Comisión IGTF Divisa",
+                    'date': self.date,
+                    'name': "Comisión IGTF Divisa",
+                    'journal_id': self.journal_id.id,
+                    'credit': float(self.mount_igtf * self.tax_today) if self.payment_type == 'inbound' else float(0.0),
+                    'debit': float(self.mount_igtf * self.tax_today) if not self.payment_type == 'inbound' else float(0.0),
+                    'amount_currency': -self.mount_igtf if self.payment_type == 'inbound' else self.mount_igtf,
+                })]
+
+        move_id.line_ids = line_ids
+        if move_id:
+            res = {'move_id_igtf_divisa': move_id.id}
+            self.write(res)
+            move_id.action_post()
+        return True
+
+    def action_draft(self):
+        res = super().action_draft()
+        for payment in self:
+            if payment.move_id_dif and payment.move_id_dif.state == 'posted':
+                payment.move_id_dif.button_draft()
+            if payment.move_id_igtf_divisa and payment.move_id_igtf_divisa.state == 'posted':
+                payment.move_id_igtf_divisa.button_draft()
+        return res
+
+    def action_cancel(self):
+        res = super().action_cancel()
+        for payment in self:
+            if payment.move_id_dif:
+                if payment.move_id_dif.state == 'posted':
+                    payment.move_id_dif.button_draft()
+                payment.move_id_dif.button_cancel()
+            if payment.move_id_igtf_divisa:
+                if payment.move_id_igtf_divisa.state == 'posted':
+                    payment.move_id_igtf_divisa.button_draft()
+                payment.move_id_igtf_divisa.button_cancel()
+        return res
+
+    def action_post(self):
+        res = super().action_post()
+        for payment in self:
+            if payment.move_id_dif and payment.move_id_dif.state == 'draft':
+                payment.move_id_dif._post(soft=False)
+            if payment.aplicar_igtf_divisa:
+                if not payment.move_id_igtf_divisa:
+                    payment.register_move_igtf_divisa_payment()
+                elif payment.move_id_igtf_divisa.state == 'draft':
+                    payment.move_id_igtf_divisa.action_post()
+        return res
+
+    def _prepare_move_line_default_vals(self, write_off_line_vals=None, force_balance=None):
+        res = super()._prepare_move_line_default_vals(write_off_line_vals, force_balance=force_balance)
+        total_debit = 0
+        total_credit = 0
+        if res:
+            currency_id = res[0].get('currency_id')
+        currencies_are_different = self.currency_id_company.id != currency_id
+
+        # Odoo 18 compatibility: ensure 'debit' and 'credit' keys exist in all line dicts
+        for line in (res or []) + (write_off_line_vals or []):
+            if 'debit' not in line:
+                line['debit'] = line['balance'] if line.get('balance', 0) > 0 else 0
+            if 'credit' not in line:
+                line['credit'] = abs(line['balance']) if line.get('balance', 0) < 0 else 0
+
+        is_company_usd = self.currency_id_company.name == 'USD'
+        for line in res:
+            if line['account_id'] == self.outstanding_account_id.id:
+                line['tax_today'] = self.tax_today
+                if currencies_are_different:
+                    rate_to_use = self.tax_today if self.tax_today > 0 else 1.0
+                    amount_curr = line.get('amount_currency', 0.0)
+                    if is_company_usd:
+                        val = float_round(abs(amount_curr) / rate_to_use, precision_digits=4)
+                    else:
+                        val = float_round(abs(amount_curr) * rate_to_use, precision_digits=4)
+                    if amount_curr > 0:
+                        line['debit'] = val
+                        line['credit'] = 0.0
+                    elif amount_curr < 0:
+                        line['debit'] = 0.0
+                        line['credit'] = val
+                    line['balance'] = float_round(line['debit'] - line['credit'], precision_digits=2)
+            elif line['account_id'] == self.destination_account_id.id:
+                tasa_factura = self.env.context.get('tasa_factura', self.tax_today) or self.tax_today or 1.0
+                line['tax_today'] = tasa_factura if write_off_line_vals else self.tax_today
+                if currencies_are_different:
+                    rate_to_use = line['tax_today'] if line['tax_today'] > 0 else 1.0
+                    amount_curr = line.get('amount_currency', 0.0)
+                    if is_company_usd:
+                        val = float_round(abs(amount_curr) / rate_to_use, precision_digits=4)
+                    else:
+                        val = float_round(abs(amount_curr) * rate_to_use, precision_digits=4)
+                    if amount_curr > 0:
+                        line['debit'] = val
+                        line['credit'] = 0.0
+                    elif amount_curr < 0:
+                        line['debit'] = 0.0
+                        line['credit'] = val
+                    line['balance'] = float_round(line['debit'] - line['credit'], precision_digits=2)
+            else:
+                continue
+            total_debit += line.get('debit', 0.0)
+            total_credit += line.get('credit', 0.0)
+
+        payment_difference_handling = self._context.get('payment_difference_handling', False)
+        if currencies_are_different and payment_difference_handling == 'open' and total_debit != total_credit:
+            if self.payment_type == 'inbound':
+                # Receive money.
+                write_off = sum(x['credit'] for x in write_off_line_vals)
+                liquidy = sum(x['debit'] for x in res if x['account_id'] == self.outstanding_account_id.id)
+            if self.payment_type == 'outbound':
+                # Send money.
+                write_off = sum(x['debit'] for x in write_off_line_vals)
+                liquidy = sum(x['credit'] for x in res if x['account_id'] == self.outstanding_account_id.id)
+            counterpart = liquidy - write_off
+            for r in res:
+                if r['account_id'] == self.destination_account_id.id:
+                    if self.payment_type == 'inbound':
+                        r['credit'] = counterpart
+                        r['balance'] = -counterpart
+                    if self.payment_type == 'outbound':
+                        r['debit'] = counterpart
+                        r['balance'] = counterpart
+        
+        # Pachacutec: Forzar balance exacto para evitar "The entry is not balanced" en Odoo 18
+        if res and currencies_are_different:
+            total_debit = sum(l.get('debit', 0.0) for l in res)
+            total_credit = sum(l.get('credit', 0.0) for l in res)
+            diff = float_round(total_debit - total_credit, precision_digits=2)
+            if diff != 0:
+                # Ajustar la línea de liquidez (outstanding_account_id) para absorber la diferencia de redondeo
+                for l in res:
+                    if l['account_id'] == self.outstanding_account_id.id:
+                        if l.get('debit'):
+                            l['debit'] = float_round(l['debit'] - diff, precision_digits=2)
+                        elif l.get('credit'):
+                            l['credit'] = float_round(l['credit'] + diff, precision_digits=2)
+                        l['balance'] = float_round(l.get('debit', 0.0) - l.get('credit', 0.0), precision_digits=2)
+                        break
+        return res
+
+
+    @api.model
+    def _get_trigger_fields_to_synchronize(self):
+        return (
+            'date', 'amount', 'payment_type', 'partner_type', 'payment_reference', 'is_internal_transfer',
+            'currency_id', 'partner_id', 'destination_account_id', 'partner_bank_id', 'journal_id', 'tax_today'
+        )
+
+    def _synchronize_to_moves(self, changed_fields):
+        if 'tax_today' in changed_fields:
+            for pay in self.with_context(skip_account_move_synchronization=True):
+                pay.move_id.write({
+                    'tax_today': pay.tax_today,
+                })
+        super(AccountPayment, self)._synchronize_to_moves(changed_fields)
+
+    # @api.depends('reconciled_invoice_ids')
+    # def _compute_payment_state(self):
+    #     for payment in self:
+    #         payment.payment_state = payment.reconciled_invoice_ids[0].payment_state if payment.reconciled_invoice_ids else None

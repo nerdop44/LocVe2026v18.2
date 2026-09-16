@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_retention_islr_form_l10n_ve_payment_extension_inherit_tfhka" model="ir.ui.view">
+        <field name="name">account.retention.islr.form.inherit.tfhka.locve</field>
+        <field name="model">account.retention</field>
+        <field name="inherit_id" ref="l10n_ve_payment_extension.view_retention_islr_form_locve_payment_extension" />
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <field name="show_digital_retention_islr" invisible="1"/>
+                <field name="control_number_tfhka" invisible="1"/>
+                <button name="generate_document_digital" string="Generar Retención Digital ISLR" type="object" 
+                        context="{'document_type': '06'}" 
+                        class="btn-primary"
+                        invisible="show_digital_retention_islr"/>
+                <button name="action_send_retention_email" string="Enviar por Correo" type="object"
+                        icon="fa-envelope"
+                        class="btn-secondary"
+                        invisible="not is_digitalized"/>
+
+            </xpath>
+            <xpath expr="//field[@name='type']" position="before">
+                <field name="is_digitalized" string="Digitalizado TFHKA" readonly="True"/>
+            </xpath>
+            <xpath expr="//field[@name='number']" position="after">
+                <field name="control_number_tfhka" string="Número Control TFHKA" readonly="True"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

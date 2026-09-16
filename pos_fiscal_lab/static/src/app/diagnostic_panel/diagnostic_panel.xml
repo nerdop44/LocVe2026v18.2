@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="pos_fiscal_lab.DiagnosticPanel">
+        <div class="o_pos_fiscal_lab">
+            <!-- Header -->
+            <div class="o_lab_header">
+                <div>
+                    <h2 class="m-0"><i class="fa fa-flask mr-2"/>FISCAL LABORATORY v1.1</h2>
+                    <small>Simulador Dinámico e Intérprete Forense - Pachacutec</small>
+                </div>
+                <div class="d-flex align-items-center">
+                    <span t-attf-class="badge mr-3 #{state.connected ? 'badge-success' : 'badge-danger'}" style="font-size: 1.1em; padding: 8px 12px;">
+                        <i t-attf-class="fa #{state.connected ? 'fa-link' : 'fa-unlink'} mr-1"/>
+                        <t t-esc="state.connected ? 'CONECTADO' : 'DESCONECTADO'"/>
+                    </span>
+                    <button class="btn btn-primary shadow-sm" t-on-click="connectPrinter">
+                        <i class="fa fa-plug mr-2"/>Conectar
+                    </button>
+                    <button class="btn btn-outline-secondary ml-2 shadow-sm" t-on-click="clearConsole">
+                        <i class="fa fa-trash"/>
+                    </button>
+                </div>
+            </div>
+
+            <div class="o_lab_content">
+                <!-- Sidebar: Constructor Dinámico -->
+                <div class="o_lab_sidebar">
+                    <div class="card p-3 mb-3">
+                        <h5 class="card-title">Simulador de Tramas</h5>
+                        <select class="form-control mb-3" t-on-change="onCommandSelect">
+                            <option value="">-- Seleccionar Comando --</option>
+                            <t t-foreach="state.commands" t-as="cmd" t-key="cmd.id">
+                                <option t-att-value="cmd.id"><t t-esc="cmd.name"/></option>
+                            </t>
+                        </select>
+
+                        <!-- Dynamic Fields -->
+                        <div t-if="state.selectedCommand">
+                            <p class="small text-muted" t-esc="state.selectedCommand.description"/>
+                            <t t-if="state.activeTemplate">
+                                <t t-foreach="state.activeTemplate.fields" t-as="field" t-key="field.name">
+                                    <div class="form-group mb-2">
+                                        <label class="small font-weight-bold"><t t-esc="field.label"/></label>
+                                        
+                                        <select t-if="field.type == 'selection'" class="form-control form-control-sm" t-model="state.dynamicFields[field.name]">
+                                            <t t-foreach="field.options" t-as="opt" t-key="opt[0]">
+                                                <option t-att-value="opt[0]"><t t-esc="opt[1]"/></option>
+                                            </t>
+                                        </select>
+                                        
+                                        <input t-else="" type="text" 
+                                               class="form-control form-control-sm" 
+                                               t-att-placeholder="field.placeholder"
+                                               t-model="state.dynamicFields[field.name]"/>
+                                    </div>
+                                </t>
+                                <button class="btn btn-success btn-block mt-3" t-on-click="buildAndSend">
+                                    <i class="fa fa-send mr-1"/>Construir y Enviar
+                                </button>
+                            </t>
+                            <t t-else="">
+                                <button class="btn btn-info btn-block" t-on-click="() => this.sendCommand(state.selectedCommand.code)">
+                                    Enviar Simple (<t t-esc="state.selectedCommand.code"/>)
+                                </button>
+                            </t>
+                        </div>
+                    </div>
+
+                    <!-- History Panel -->
+                    <div class="card p-3 flex-grow-1 overflow-auto" style="max-height: 400px;">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h5 class="card-title mb-0">Historial (Backend)</h5>
+                            <button class="btn btn-sm btn-outline-danger" t-on-click="clearHistory">Vaciar</button>
+                        </div>
+                        <div class="list-group list-group-flush">
+                            <t t-foreach="state.dbLogs" t-as="log" t-key="log.id">
+                                <div class="list-group-item p-2 small border-bottom">
+                                    <div class="font-weight-bold d-flex justify-content-between">
+                                        <span t-esc="log.timestamp.split(' ')[1]"/>
+                                        <span class="badge badge-light" t-esc="log.command_raw"/>
+                                    </div>
+                                    <div class="text-truncate text-muted" t-esc="log.response_raw"/>
+                                    <div class="text-info font-italic" t-esc="log.interpretation"/>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main: Diagnostic & Logic -->
+                <div class="o_lab_main">
+                    <!-- Dashboard de Status Real -->
+                    <div class="row m-0 gap-2 mb-2">
+                        <div class="col o_status_card">
+                            <h6 class="border-bottom pb-1">B1: STATUS (<t t-esc="state.status.b1_hex"/>)</h6>
+                            <div t-foreach="statusMapping.b1" t-as="item" t-key="item.bit" class="status_bit">
+                                <i t-attf-class="fa #{state.status.b1_bits[item.bit] ? 'fa-check-circle text-success' : 'fa-circle-o text-muted'}"/>
+                                <span class="bit_val" t-esc="item.bit"/>: <span t-esc="item.label"/>
+                            </div>
+                        </div>
+                        <div class="col o_status_card">
+                            <h6 class="border-bottom pb-1">B2: ERROR (<t t-esc="state.status.b2_hex"/>)</h6>
+                            <div t-foreach="statusMapping.b2" t-as="item" t-key="item.bit" class="status_bit">
+                                <i t-attf-class="fa #{state.status.b2_bits[item.bit] ? 'fa-warning text-danger' : 'fa-circle-o text-muted'}"/>
+                                <span class="bit_val" t-esc="item.bit"/>: <span t-esc="item.label"/>
+                            </div>
+                        </div>
+                        <div class="col o_status_card">
+                            <h6 class="border-bottom pb-1">B3: MISC (<t t-esc="state.status.b3_hex"/>)</h6>
+                            <div t-foreach="statusMapping.b3" t-as="item" t-key="item.bit" class="status_bit">
+                                <i t-attf-class="fa #{state.status.b3_bits[item.bit] ? 'fa-info-circle text-info' : 'fa-circle-o text-muted'}"/>
+                                <span class="bit_val" t-esc="item.bit"/>: <span t-esc="item.label"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Console Live -->
+                    <div class="o_lab_console" id="lab_console">
+                        <t t-foreach="state.logs" t-as="log" t-key="log_index">
+                            <div t-attf-class="log_entry #{log.type}">
+                                <span class="text-white-50 mr-1" style="font-size: 0.85em;">[<t t-esc="log.time"/>]</span> 
+                                <span t-attf-class="badge mr-2 #{log.type == 'campo' ? 'badge-dark text-warning' : (log.type == 'recibido' ? 'badge-primary' : (log.type == 'enviado' ? 'badge-info' : ''))}">
+                                    <t t-esc="log.prefix"/>
+                                </span>
+                                <span t-attf-style="#{log.type == 'campo' ? 'font-family: monospace; letter-spacing: 0.5px;' : ''}">
+                                    <t t-esc="log.content"/>
+                                </span>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </t>
+</templates>

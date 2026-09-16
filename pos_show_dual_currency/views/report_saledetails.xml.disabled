@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <template id="pos_daily_report_ref" inherit_id="point_of_sale.pos_session_sales_details">
+        <!-- Products Section: Update for nested structure -->
+        <xpath expr="//tr[@t-foreach=&quot;category['products']&quot;]//td[3]" position="replace">
+            <td class="text-end">
+                <span t-out='line["price_unit"]' t-options="{'widget': 'float', 'precision': currency['precision']}"/>
+                <t t-out='symbol'/>
+                /
+                <span style="color: red">
+                    <t t-out='symbol_ref'/>
+                    <span t-out='line["price_unit_ref"]' t-options="{'widget': 'float', 'precision': currency_precision_ref}"/>
+                </span>
+
+                <t t-if='line["discount"] != 0'>
+                    Disc:<t t-out='line["discount"]'/>%
+                </t>
+            </td>
+        </xpath>
+
+        <!-- Payments Section -->
+        <xpath expr="//tr[@t-foreach='payments']" position="replace">
+            <tr t-foreach='payments' t-as='payment' class="border-bottom border-secondary">
+                <td class="ps-2 fw-bold">
+                    <t t-out="payment['name']"/>
+                </td>
+                <td class="text-end">
+                    <span t-out="payment['total']" t-options="{'widget': 'float', 'precision': currency['precision']}"/>
+                    <t t-out='symbol'/>
+                    /
+                    <span style="color: red">
+                        <t t-out='symbol_ref'/>
+                        <span t-out="payment['total_ref']"
+                            t-options="{'widget': 'float', 'precision': currency_precision_ref}"/>
+                    </span>
+                </td>
+            </tr>
+        </xpath>
+
+        <!-- Taxes Section -->
+        <xpath expr="//tr[@t-foreach='taxes']" position="replace">
+            <tr t-foreach='taxes' t-as='tax' class="border-bottom border-secondary">
+                <td class="ps-2 fw-bold">
+                    <t t-out="tax['name']"/>
+                </td>
+                <td class="text-end">
+                    <span t-out="tax['tax_amount']" t-options="{'widget': 'float', 'precision': currency['precision']}"/>
+                    <t t-out='symbol'/>
+                    /
+                    <span style="color: red">
+                        <t t-out='symbol_ref'/>
+                        <span t-out="tax['tax_amount_ref']"
+                           t-options="{'widget': 'float', 'precision': currency_precision_ref}"/>
+                    </span>
+                </td>
+                <td class="text-end">
+                    <span t-out="tax['base_amount']" t-options="{'widget': 'float', 'precision': currency['precision']}"/>
+                    <t t-out='symbol'/>
+                    /
+                    <span style="color: red">
+                        <t t-out='symbol_ref'/>
+                        <span t-out="tax['base_amount_ref']"
+                           t-options="{'widget': 'float', 'precision': currency_precision_ref}"/>
+                    </span>
+                </td>
+            </tr>
+        </xpath>
+
+        <!-- Total Paid - DISABLED: XPath not found in Odoo 18 structure
+        <xpath expr="//span[@t-out='total_paid']" position="after">
+            <t t-out='symbol'/>
+            /
+            <span style="color: red">
+                <t t-out='symbol_ref'/>
+                <span t-out="total_paid_ref"
+                   t-options="{'widget': 'float', 'precision': currency_precision_ref}"/>
+            </span>
+        </xpath>
+        -->
+    </template>
+</odoo>

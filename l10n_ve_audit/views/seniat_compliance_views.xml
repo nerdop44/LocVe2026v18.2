@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- 1. Version at Login -->
+        <template id="web_login_seniat_version" inherit_id="web.login">
+            <xpath expr="//form" position="before">
+                <div class="alert alert-info text-center" style="font-weight: bold; margin-bottom: 15px; border: 1px solid #17a2b8;">
+                    Odoo 18 Enterprise - Homologación SENIAT
+                </div>
+            </xpath>
+        </template>
+
+        <!-- 2. Restrict Apps Menu to system administrator -->
+        <record id="base.menu_apps" model="ir.ui.menu">
+            <field name="groups_id" eval="[(6, 0, [ref('base.group_system')])]"/>
+        </record>
+
+        <!-- 3. Hide Nota de Entrega print action from dropdown -->
+        <record id="l10n_ve_invoice.action_invoice_sale_note_l10n_ve_invoice" model="ir.actions.report">
+            <field name="binding_model_id" eval="False"/>
+        </record>
+
+        <!-- 4. Restrict Reset to Draft button on account.move to system administrator in developer mode -->
+        <record id="view_move_form_hide_preview" model="ir.ui.view">
+            <field name="name">account.move.form.hide.preview</field>
+            <field name="model">account.move</field>
+            <field name="inherit_id" ref="account.view_move_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//button[@name='preview_invoice']" position="attributes">
+                    <attribute name="invisible">1</attribute>
+                </xpath>
+                <xpath expr="//button[@name='button_draft']" position="attributes">
+                    <attribute name="groups">account.group_account_invoice</attribute>
+                </xpath>
+            </field>
+        </record>
+
+        <!-- 4b. Restrict tax_today edit permissions (dual currency specific) -->
+        <record id="view_move_form_audit_tax_today" model="ir.ui.view">
+            <field name="name">account.move.form.audit.tax.today</field>
+            <field name="model">account.move</field>
+            <field name="inherit_id" ref="account_dual_currency.account_move_form_inherit_v23"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='tax_today']" position="attributes">
+                    <attribute name="invisible">0</attribute>
+                    <attribute name="readonly">1</attribute>
+                </xpath>
+
+                <xpath expr="//field[@name='tax_today_edited']" position="attributes">
+                    <attribute name="invisible">1</attribute>
+                </xpath>
+            </field>
+        </record>
+
+
+        <!-- 5. Hide Preview and restrict Reset to Draft button on sale.order -->
+        <record id="view_order_form_hide_preview" model="ir.ui.view">
+            <field name="name">sale.order.form.hide.preview</field>
+            <field name="model">sale.order</field>
+            <field name="inherit_id" ref="sale.view_order_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//button[@name='action_preview_sale_order']" position="attributes">
+                    <attribute name="invisible">1</attribute>
+                </xpath>
+                <xpath expr="//button[@name='action_draft']" position="attributes">
+                    <attribute name="groups">account.group_account_invoice</attribute>
+                </xpath>
+                <xpath expr="//sheet" position="before">
+                    <div class="alert alert-warning text-center mb-0" role="alert" invisible="invoice_status != 'to invoice'">
+                        <strong>¡Atención!</strong> Esta orden de venta tiene despachos/conceptos pendientes por facturar.
+                    </div>
+                </xpath>
+            </field>
+        </record>
+
+        <!-- 6. Restrict Reset to Draft button on purchase.order -->
+        <record id="view_purchase_form_hide_draft" model="ir.ui.view">
+            <field name="name">purchase.order.form.hide.draft</field>
+            <field name="model">purchase.order</field>
+            <field name="inherit_id" ref="purchase.purchase_order_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//button[@name='button_draft']" position="attributes">
+                    <attribute name="groups">account.group_account_invoice</attribute>
+                </xpath>
+            </field>
+        </record>
+
+        <!-- 7. Alert decoration in sale.order tree views -->
+        <record id="view_order_tree_pending_billing" model="ir.ui.view">
+            <field name="name">sale.order.tree.pending.billing</field>
+            <field name="model">sale.order</field>
+            <field name="inherit_id" ref="sale.view_order_tree"/>
+            <field name="arch" type="xml">
+                <xpath expr="//list" position="attributes">
+                    <attribute name="decoration-danger">invoice_status == 'to invoice'</attribute>
+                </xpath>
+                <xpath expr="//list" position="inside">
+                    <field name="invoice_status" column_invisible="1"/>
+                </xpath>
+            </field>
+        </record>
+
+        <record id="view_quotation_tree_pending_billing" model="ir.ui.view">
+            <field name="name">sale.order.quotation.tree.pending.billing</field>
+            <field name="model">sale.order</field>
+            <field name="inherit_id" ref="sale.view_quotation_tree"/>
+            <field name="arch" type="xml">
+                <xpath expr="//list" position="attributes">
+                    <attribute name="decoration-danger">invoice_status == 'to invoice'</attribute>
+                </xpath>
+                <xpath expr="//list" position="inside">
+                    <field name="invoice_status" column_invisible="1"/>
+                </xpath>
+            </field>
+        </record>
+
+        <!-- 8. Dashboard alert counter for pending billing in Sales journal -->
+        <record id="account_journal_dashboard_kanban_view_pending_billing" model="ir.ui.view">
+            <field name="name">account.journal.dashboard.kanban.pending.billing</field>
+            <field name="model">account.journal</field>
+            <field name="inherit_id" ref="account.account_journal_dashboard_kanban_view"/>
+            <field name="arch" type="xml">
+                <xpath expr="//div[@name='kanban_primary_right']" position="inside">
+                    <t t-if="record.type.raw_value == 'sale' and dashboard.number_to_invoice_orders">
+                        <div class="row text-warning" style="font-weight: bold; margin-top: 5px;">
+                            <div class="col-8">
+                                <a type="object" name="action_view_to_invoice_orders">
+                                    Pedidos por Facturar
+                                </a>
+                            </div>
+                            <div class="col-4 text-end">
+                                <span><t t-out="dashboard.number_to_invoice_orders"/></span>
+                            </div>
+                        </div>
+                    </t>
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>

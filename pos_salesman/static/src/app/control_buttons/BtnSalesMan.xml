@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-name="pos_salesman.BtnSalesMan">
+        <button class="button btn btn-light rounded-0 fw-bolder d-flex flex-column align-items-center justify-content-center w-100" t-on-click="onClick">
+            <div class="d-flex align-items-center">
+                <i class="fa fa-user me-1" role="img" aria-label="Vendedor" title="Vendedor" />
+                <span>Vendedor</span>
+            </div>
+            <t t-if="salesmanName">
+                <span class="text-truncate fw-normal mt-1" style="max-width: 100%; font-size: 0.9em;"><t t-esc="salesmanName"/></span>
+            </t>
+        </button>
+    </t>
+
+    <t t-name="pos_salesman.ActionpadWidget" t-inherit="point_of_sale.ActionpadWidget" t-inherit-mode="extension" owl="1">
+        <xpath expr="//div[hasclass('actionpad')]" position="inside">
+            <div class="d-flex align-items-center justify-content-between gap-2 mb-2 w-100 order-first">
+                <BtnSalesMan />
+            </div>
+        </xpath>
+    </t>
+
+
+
+
+</templates>
+

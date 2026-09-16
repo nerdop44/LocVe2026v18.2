@@ -1,0 +1,20 @@
+# -*- coding: utf-8 -*-
+{
+    'name': '[LocVe] POS Doble Moneda',
+    'summary': 'Doble moneda en el Punto de Venta para la suite LocVe (OPCIONAL).',
+    'category': 'LocVe [Localization]',
+    'version': '18.0.2.0.0',
+    'application': False,
+    'author': 'Ing. Nerdo Jose Pulido Aguirre',
+    'website': 'https://github.com/nerdop44',
+    'depends': ['point_of_sale', 'stock', 'sale'],
+    'data': ['security/ir.model.access.csv', 'views/pos_payment_method.xml', 'views/pos_session.xml', 'views/pos_payment.xml', 'views/pos_config.xml', 'views/res_config_settings.xml', 'views/pos_order.xml', 'views/report_saledetails.xml'],
+    'assets': {'point_of_sale._assets_pos': ['pos_show_dual_currency/static/src/css/pos.css', 'pos_show_dual_currency/static/src/app/**/*']},
+    'license': 'OPL-1',
+    'images': ['static/description/thumbnail.png'],
+    'price': 100,
+    'currency': 'USD',
+    'auto_install': False,
+    'installable': True,
+    'description': 'Doble moneda en el Punto de Venta para la suite LocVe (OPCIONAL).\nMuestra los precios y totales en moneda local (Bs.) y divisa en el POS.\n- Precio en Bs. y divisa en la pantalla del cajero\n- Total a pagar en ambas monedas\n- Recibo con doble moneda\nSolo instalar en empresas con Punto de Venta activo.\nAutor: Ing. Nerdo Jose Pulido Aguirre',
+}

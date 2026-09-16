@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <!-- Pachacutec: v135 - Template MoneyDetailsPopupUSD Odoo 18 -->
+    <t t-name="pos_show_dual_currency.MoneyDetailsPopupUSD">
+        <div class="popup money-details-usd" style="background: white; border-radius: 8px; padding: 20px; max-width: 500px; margin: auto;">
+            <header class="header" style="border-bottom: 1px solid #eee; margin-bottom: 15px;">
+                <h4 class="title">Desglose de Efectivo (Ref Currency)</h4>
+            </header>
+            <main class="body">
+                <div class="money-details-info" style="display: flex; gap: 20px;">
+                    <t t-foreach="[firstHalfMoneyDetailsRef, lastHalfMoneyDetailsRef]" t-as="moneyDetailsListRef" t-key="moneyDetailsListRef_index">
+                        <div style="flex: 1;">
+                            <t t-foreach="moneyDetailsListRef" t-as="moneyValueRef" t-key="moneyValueRef">
+                                <div class="money-details-value" t-on-input="updateMoneyDetailsAmountRef" style="display: flex; align-items: center; margin-bottom: 8px;">
+                                    <input class="pos-input" t-att-id="moneyValueRef" type="number" style="width: 60px; margin-right: 10px;"
+                                           t-model.number="state.moneyDetailsRef[moneyValueRef]"/>
+                                    <span>x <t t-esc="pos.format_currency_ref(moneyValueRef)"/></span>
+                                </div>
+                            </t>
+                        </div>
+                    </t>
+                </div>
+                <div class="total-section" style="margin-top: 20px; padding-top: 10px; border-top: 2px solid #eee; font-weight: bold; font-size: 1.2em; text-align: right;">
+                    <span>Total USD: </span>
+                    <span t-esc="pos.format_currency_ref(state.total_ref)"/>
+                </div>
+            </main>
+            <footer class="footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                <div class="button btn btn-secondary" t-on-click="discard">Descartar</div>
+                <div class="button btn btn-primary" t-on-click="confirm">Confirmar</div>
+            </footer>
+        </div>
+    </t>
+</templates>

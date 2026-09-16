@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-name="pos_show_dual_currency.OpeningControlPopup" t-inherit="point_of_sale.OpeningControlPopup" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('opening-cash-section')]" position="after">
+            <div class="opening-cash-section mb-3" t-if="this.cashMethodCount">
+                <label class="form-label">USD Opening cash</label>
+                <div t-att-class="{ 'w-50': !ui.isSmall }" class="cash-input-sub-section d-flex gap-1">
+                    <Input tModel="[state, 'openingCashUSD']"
+                        isValid.bind="env.utils.isValidFloat"
+                        callback.bind="handleInputChangeUSD"
+                        placeholder.translate="USD Opening Balance Eg: 10"/>
+                    <div class="button icon btn btn-secondary btn-lg lh-lg" t-on-click="openDetailsPopupUSD">
+                        <i class="fa fa-money" role="img" title="Open the money details popup USD"/>
+                    </div>
+                </div>
+            </div>
+        </xpath>
+    </t>
+</templates>

@@ -1,0 +1,6 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_soportehelp_config,soportehelp.config,model_soportehelp_config,base.group_user,1,1,1,1
+access_soportehelp_history,soportehelp.history,model_soportehelp_history,base.group_user,1,0,0,0
+access_soportehelp_ticket,soportehelp.ticket,model_soportehelp_ticket,base.group_user,1,1,1,1
+access_soportehelp_maintenance_apply,soportehelp.maintenance.apply,model_soportehelp_maintenance_apply,base.group_user,1,1,1,1
+access_soportehelp_company_alert,soportehelp.company.alert,model_soportehelp_company_alert,base.group_user,1,1,1,1

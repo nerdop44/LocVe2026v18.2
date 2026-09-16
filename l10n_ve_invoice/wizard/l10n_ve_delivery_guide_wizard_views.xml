@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_l10n_ve_delivery_guide_wizard_form" model="ir.ui.view">
+        <field name="name">l10n_ve.delivery.guide.wizard.form</field>
+        <field name="model">l10n_ve.delivery.guide.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Datos de Guía de Despacho">
+                <sheet>
+                    <group>
+                        <group string="Identificación">
+                            <field name="move_id" invisible="1"/>
+                            <field name="l10n_ve_guide_number"/>
+                            <field name="l10n_ve_carrier_name"/>
+                            <field name="l10n_ve_carrier_vat"/>
+                        </group>
+                        <group string="Vehículo">
+                            <field name="l10n_ve_vehicle_plate"/>
+                            <field name="l10n_ve_vehicle_brand"/>
+                        </group>
+                    </group>
+                    <group string="Ruta de Despacho">
+                        <field name="l10n_ve_starting_point" rows="3"/>
+                        <field name="l10n_ve_ending_point" rows="3"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_confirm" string="Generar Guía" type="object" class="btn-primary"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

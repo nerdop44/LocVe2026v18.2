@@ -1,0 +1,26 @@
+/* Block Odoo Studio button */
+.o_web_studio_button,
+.o_studio_navbar_item,
+.o_studio_button,
+.o-studio-btn,
+.o_web_client .o_main_navbar .o_studio_button {
+    display: none !important;
+}
+
+/* Hide Preview button */
+button[name="preview_invoice"],
+button[name="preview_sale_order"],
+a[name="preview_invoice"],
+a[name="preview_sale_order"],
+.o_invoice_preview,
+.o_sale_preview {
+    display: none !important;
+}
+
+/* Hide manual rate edit toggle in account.move */
+div.d-flex.align-items-center.gap-2 > span.text-muted,
+div.d-flex.align-items-center.gap-2 > .o_field_boolean_toggle[name="tax_today_edited"],
+div.d-flex.align-items-center.gap-2 > [name="tax_today_edited"],
+[name="tax_today_edited"] {
+    display: none !important;
+}

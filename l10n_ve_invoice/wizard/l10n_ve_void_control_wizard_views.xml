@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_l10n_ve_void_control_wizard_form" model="ir.ui.view">
+        <field name="name">l10n_ve.void.control.wizard.form</field>
+        <field name="model">l10n_ve.void.control.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Anular Número de Control (Atasco de Papel)">
+                <sheet>
+                    <div class="alert alert-warning" role="alert">
+                        <strong>Atención:</strong> Esta acción consumirá de manera irreversible el número de control preimpreso actual en la secuencia del diario seleccionado, registrándolo en los libros de auditoría como dañado/anulado físicamente.
+                    </div>
+                    <group>
+                        <group>
+                            <field name="move_id" readonly="1" force_save="1"/>
+                            <field name="journal_id"/>
+                            <field name="sequence_id"/>
+                        </group>
+                        <group>
+                            <field name="next_control_number" class="text-danger font-weight-bold" style="font-size: 1.2em;"/>
+                            <field name="reason"/>
+                        </group>
+                    </group>
+                    <group string="Detalles de la Falla/Incidente">
+                        <field name="notes" placeholder="Describa brevemente cómo ocurrió el atasco de papel o el daño del correlativo físico para los registros de auditoría fiscal..." nolabel="1"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_confirm_void" string="Confirmar Anulación" type="object" class="btn-danger"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_l10n_ve_void_control_wizard" model="ir.actions.act_window">
+        <field name="name">Anular Correlativo por Atasco</field>
+        <field name="res_model">l10n_ve.void.control.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

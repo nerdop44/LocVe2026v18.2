@@ -1,0 +1,71 @@
+
+<odoo>
+	<data>
+
+		<record id="res_config_settings_locve_payment_extension" model="ir.ui.view">
+			<field name="name">res.config.settings.locve.payment.extension</field>
+			<field name="model">res.config.settings</field>
+			<field name="priority" eval="100"/>
+			<field name="inherit_id" ref="l10n_ve_base.res_config_settings_view_form_locve_base"/>
+			<field name="arch" type="xml">
+				
+                <xpath expr="//app[@name='l10n_ve_base']" position="inside">
+					<h2>Retention Journals</h2>
+					<div class="row mt16 o_settings_container" name="locve_retention_journals_settings">\
+						<div class="o_setting_right_pane">
+							<group colspan="4" col="4">
+								<field name="iva_supplier_retention_journal_id"/>
+								<field name="iva_customer_retention_journal_id"/>
+								<field name="islr_supplier_retention_journal_id"/>
+								<field name="islr_customer_retention_journal_id"/>
+								<field name="municipal_supplier_retention_journal_id"/>
+								<field name="municipal_customer_retention_journal_id"/>
+								<field name="code_visible"/>
+							</group>
+						</div>
+					</div>
+					<h2>Other withholding settings</h2>
+					<div class="row mt16 o_settings_container" name="locve_withholding_settings">
+						<div class="o_setting_right_pane">
+							<group colspan="4" col="4">
+								<field name="condition_withholding_id"/>
+							</group>
+						</div>
+					</div>
+					<h2>Opciones Avanzadas de Retenciones</h2>
+					<div class="row mt16 o_settings_container" name="locve_advanced_retention_settings">
+						<div class="col-12 col-lg-6 o_setting_box">
+							<div class="o_setting_left_pane">
+								<field name="retention_sequence_annual_reset"/>
+							</div>
+							<div class="o_setting_right_pane">
+								<label for="retention_sequence_annual_reset"/>
+								<div class="text-muted">
+									Si se activa, los correlativos de comprobantes de retención (IVA, ISLR, Municipal)
+									se reiniciarán a 00001 al inicio de cada año fiscal. Si se desactiva, la numeración
+									será continua sin reinicio.
+								</div>
+							</div>
+						</div>
+						<div class="col-12 col-lg-6 o_setting_box">
+							<div class="o_setting_left_pane">
+								<field name="islr_subtract_once_per_month"/>
+							</div>
+							<div class="o_setting_right_pane">
+								<label for="islr_subtract_once_per_month"/>
+								<div class="text-muted">
+									Conforme al Art. 9 del Decreto 1808, el sustraendo se aplica una sola vez por
+									proveedor (RIF) dentro del mismo mes calendario. Active esta opción para que
+									el sistema verifique automáticamente si el sustraendo ya fue descontado al
+									mismo proveedor en el periodo y lo omita en retenciones subsiguientes.
+								</div>
+							</div>
+						</div>
+					</div>
+				</xpath>
+
+			</field>
+		</record>
+
+	</data>
+</odoo>

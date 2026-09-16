@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="view_pos_show_dual_currency_config_form" model="ir.ui.view">
+        <field name="name">pos.pin.config.form.show_dual_currency</field>
+        <field name="model">pos.config</field>
+        <field name="inherit_id" ref="point_of_sale.pos_config_view_form" />
+        <field name="arch" type="xml">
+            <xpath expr="//setting[@id='pricing']" position="after">
+                <setting id="show_prod_qtys" string="Doble Moneda" help="Muestra el precio en la moneda secundaria en los productos">
+                    <field name="show_dual_currency" />
+                    <div class="content-group" invisible="not show_dual_currency">
+                        <div class="row mt16">
+                            <label for="show_currency" string="Moneda" class="col-lg-3 o_light_label"/>
+                            <field name="show_currency" />
+                        </div>
+                        <div class="row mt16">
+                            <label for="show_currency_rate" string="Tasa" class="col-lg-3 o_light_label"/>
+                            <field name="show_currency_rate" digits="[12,21]"/>
+                        </div>
+                    </div>
+                </setting>
+            </xpath>
+        </field>
+    </record>
+</odoo>

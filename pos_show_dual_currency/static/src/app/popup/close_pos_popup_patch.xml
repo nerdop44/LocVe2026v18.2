@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <!-- Pachacutec: v18.0.1.2.30 - Reorganización Visual Premium del Cierre de Caja (VES de primero, USD de segundo) compatible con pos_hr -->
+    <t t-name="ClosePosPopupPatch" t-inherit="point_of_sale.ClosePosPopup" t-inherit-mode="extension">
+        
+        <!-- Mostrar total de órdenes en USD también en la cabecera -->
+        <xpath expr="//div[hasclass('total-orders')]" position="inside">
+            <div class="currency-ref-total" style="color: #6c757d; font-size: 0.9em;">
+                (<t t-esc="pos.getAmountInRefCurrency(props.orders_details.amount, true)"/>)
+            </div>
+        </xpath>
+
+        <!-- Vaciar el bloque condicional inyectado por pos_hr para evitar duplicidades -->
+        <xpath expr="//t[@t-if='pos.config.module_pos_hr']" position="replace">
+            <!-- Removido porque su lógica se unifica dentro del diseño principal -->
+        </xpath>
+
+        <!-- Eliminar bloque de entrada de efectivo principal nativo inferior para evitar duplicidad -->
+        <xpath expr="//div[@t-if='pos.config.cash_control' and @class='mb-3']" position="replace">
+            <!-- Removido para mostrar de forma contigua en el resumen superior -->
+        </xpath>
+
+        <!-- Reemplazar el div de resumen de métodos de pago con nuestro diseño premium unificado -->
+        <xpath expr="//div[hasclass('payment-methods-overview')]" position="replace">
+            <div class="payment-methods-overview-premium w-100">
+                
+                <!-- 1. Tarjeta Premium de Efectivo VES (Bs) -->
+                <div t-if="pos.config.cash_control" class="w-100 mb-4 p-3" style="background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                    <t t-set="diff_ves" t-value="getDifference(props.default_cash_details.id)" />
+                    <t t-set="counted_ves" t-value="state.payments[props.default_cash_details.id]?.counted || '0'" />
+                    
+                    <div class="d-flex align-items-center justify-content-between fs-3 fw-bold mb-2 pb-1 border-bottom" style="color: #495057;">
+                        <span t-esc="props.default_cash_details.name" />
+                        <span t-esc="env.utils.formatCurrency(props.default_cash_details.amount)" />
+                    </div>
+                    
+                    <div class="d-flex align-items-center justify-content-between text-muted border-start ps-2 py-1" style="font-size: 0.9em;">
+                        <span>Apertura (Opening)</span>
+                        <span t-esc="env.utils.formatCurrency(props.default_cash_details.opening)" />
+                    </div>
+                    
+                    <!-- Lógica condicional de desglose según pos_hr -->
+                    <t t-if="pos.config.module_pos_hr">
+                        <PaymentMethodBreakdown title.translate="Payments" total_amount="props.default_cash_details.payment_amount" transactions="props.default_cash_details.amount_per_employee"/>
+                        <PaymentMethodBreakdown title.translate="Cash in/out" total_amount="getMovesTotalAmount()" transactions="props.default_cash_details.moves_per_employee"/>
+                    </t>
+                    <t t-else="">
+                        <div t-if="props.default_cash_details.payment_amount" class="d-flex align-items-center justify-content-between text-muted border-start ps-2 py-1" style="font-size: 0.9em;">
+                            <span>Pagos (Payments)</span>
+                            <span t-esc="env.utils.formatCurrency(Math.abs(props.default_cash_details.payment_amount))"/>
+                        </div>
+                        <t t-set="moveData" t-value="cashMoveData"/>
+                        <PaymentMethodBreakdown title.translate="Cash In / Out" total_amount="cashMoveData.total" transactions="cashMoveData.moves"/>
+                    </t>
+                    
+                    <!-- Input de Conteo Físico VES -->
+                    <div class="cash-count-input-group mt-3 p-2" style="background-color: #ffffff; border: 1px solid #dee2e6; border-radius: 6px;">
+                        <label class="form-label mb-1 fw-bold text-muted" style="font-size: 0.85em;">Conteo Físico VES (Bs):</label>
+                        <div class="d-flex w-100 gap-2">
+                            <Input tModel="[state.payments[props.default_cash_details.id], 'counted']"
+                                callback.bind="(value) => this.setManualCashInput(value)"
+                                isValid.bind="env.utils.isValidFloat" class="'cash-input w-100'"/>
+                            <button class="icon fa fa-money btn btn-outline-secondary" t-on-click="openDetailsPopup" title="Calculadora Bs" />
+                            <button class="icon fa fa-clone btn btn-outline-secondary" t-on-click="autoFillCashCount" title="Copiar del Sistema" />
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex align-items-center justify-content-between text-muted border-start ps-2 mt-3 pt-2 border-top" style="font-size: 0.9em;">
+                        <span>Contado (Counted)</span>
+                        <span t-esc="env.utils.formatCurrency(env.utils.parseValidFloat(counted_ves))" />
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between text-muted border-start ps-2 py-1" t-att-class="{'text-danger fw-bold': diff_ves}">
+                        <span>Diferencia (Difference)</span>
+                        <span class="cash-difference" t-esc="env.utils.formatCurrency(diff_ves)" />
+                    </div>
+                </div>
+
+                <!-- 2. Tarjeta Premium de Efectivo USD ($) -->
+                <div t-if="pos.config.cash_control and props.default_cash_details_ref and props.default_cash_details_ref.id" class="w-100 mb-4 p-3" style="background-color: #f4fcfb; border: 1px solid #c3e6e5; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                    <t t-set="diff_usd" t-value="getDifference(props.default_cash_details_ref.id)" />
+                    <t t-set="counted_usd" t-value="state.payments_usd[props.default_cash_details_ref.id]?.counted || '0'" />
+                    
+                    <div class="d-flex align-items-center justify-content-between fs-3 fw-bold mb-2 pb-1 border-bottom" style="color: #008784;">
+                        <span t-esc="props.default_cash_details_ref.name" />
+                        <span t-esc="pos.format_currency_ref(props.default_cash_details_ref.amount)" />
+                    </div>
+                    
+                    <div class="d-flex align-items-center justify-content-between text-muted border-start ps-2 py-1" style="font-size: 0.9em;">
+                        <span>Apertura USD (Opening USD)</span>
+                        <span t-esc="pos.format_currency_ref(props.default_cash_details_ref.opening)" />
+                    </div>
+                    <div t-if="props.default_cash_details_ref.payment_amount" class="d-flex align-items-center justify-content-between text-muted border-start ps-2 py-1" style="font-size: 0.9em;">
+                        <span>Pagos USD (Payments USD)</span>
+                        <span t-esc="pos.format_currency_ref(props.default_cash_details_ref.payment_amount)"/>
+                    </div>
+                    <div t-if="props.default_cash_details_ref.igtf_amount > 0" class="d-flex align-items-center justify-content-between text-muted border-start ps-2 py-1" style="font-size: 0.9em; color: #a04000 !important; font-weight: bold;">
+                        <span>IGTF Efectivo USD (3%)</span>
+                        <span>
+                            <t t-esc="env.utils.formatCurrency(props.default_cash_details_ref.igtf_amount)"/>
+                            / <span style="color: #008784;"><t t-esc="pos.format_currency_ref(props.default_cash_details_ref.igtf_amount_ref)"/></span>
+                        </span>
+                    </div>
+                    
+                    <t t-if="pos.config.module_pos_hr">
+                        <PaymentMethodBreakdown title.translate="Payments USD" total_amount="props.default_cash_details_ref.payment_amount" transactions="props.default_cash_details_ref.amount_per_employee"/>
+                        <PaymentMethodBreakdown title.translate="Cash in/out USD" total_amount="props.default_cash_details_ref.payment_amount" transactions="props.default_cash_details_ref.moves_per_employee"/>
+                    </t>
+                    <t t-else="">
+                        <PaymentMethodBreakdown title.translate="Cash In / Out USD" total_amount="props.default_cash_details_ref.payment_amount" transactions="props.default_cash_details_ref.moves"/>
+                    </t>
+                    
+                    <!-- Input de Conteo Físico USD -->
+                    <div class="cash-count-input-group mt-3 p-2" style="background-color: #ffffff; border: 1px solid #c3e6e5; border-radius: 6px;">
+                        <label class="form-label mb-1 fw-bold" style="font-size: 0.85em; color: #008784;">Conteo Físico USD ($):</label>
+                        <div class="d-flex w-100 gap-2">
+                            <Input tModel="[state.payments_usd[props.default_cash_details_ref.id], 'counted']"
+                                callback.bind="(value) => this.handleInputChangeUSD(props.default_cash_details_ref.id)"
+                                isValid.bind="env.utils.isValidFloat" class="'cash-input w-100'"/>
+                            <button class="icon fa fa-money btn btn-outline-secondary" t-on-click="openDetailsPopupUSD" title="Calculadora USD" style="border-color: #c3e6e5; color: #008784;" />
+                            <button class="icon fa fa-clone btn btn-outline-secondary" t-on-click="autoFillCashCountUSD" title="Copiar del Sistema" style="border-color: #c3e6e5; color: #008784;" />
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex align-items-center justify-content-between text-muted border-start ps-2 mt-3 pt-2 border-top" style="font-size: 0.9em;">
+                        <span>Contado USD (Counted USD)</span>
+                        <span t-esc="pos.format_currency_ref(counted_usd)" />
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between text-muted border-start ps-2 py-1" t-att-class="{'text-danger fw-bold': diff_usd}">
+                        <span>Diferencia USD (Difference USD)</span>
+                        <span class="cash-difference-usd" t-esc="pos.format_currency_ref(diff_usd)" />
+                    </div>
+                </div>
+
+                <!-- 3. Otros Métodos de Pago (Bancos, Tarjetas) -->
+                <div class="w-100 mb-3" t-foreach="props.non_cash_payment_methods" t-as="pm" t-key="pm.id">
+                    <t t-set="_showDiff" t-value="pm.type === 'bank' and pm.number !== 0" />
+                    <t t-set="diff" t-value="_showDiff ? getDifference(pm.id) : 0" />
+                    <t t-set="counted" t-value="_showDiff ? env.utils.parseValidFloat(state.payments[pm.id].counted) : 0" />
+                    
+                    <div class="d-flex align-items-center justify-content-between fs-3">
+                        <div>
+                            <span t-esc="pm.name" />
+                            <span class="usd-amount ms-2 text-muted" style="font-size: 0.8em;">
+                                (<t t-esc="pos.getAmountInRefCurrency(pm.amount, true)"/>)
+                            </span>
+                        </div>
+                        <span t-esc="env.utils.formatCurrency(pm.amount)" />
+                    </div>
+                    
+                    <!-- Lógica condicional de desglose según pos_hr -->
+                    <t t-if="pos.config.module_pos_hr">
+                        <PaymentMethodBreakdown title.translate="Payments" total_amount="pm.amount" transactions="pm.amount_per_employee"/>
+                    </t>
+                    
+                    <div t-if="pm.igtf_amount > 0" class="d-flex align-items-center justify-content-between text-muted border-start ps-2 mt-1" style="font-size: 0.85em; color: #a04000 !important; font-weight: bold; margin-left: 20px;">
+                        <span>IGTF Recaudado (3%)</span>
+                        <span>
+                            <t t-esc="env.utils.formatCurrency(pm.igtf_amount)"/>
+                            / <span style="color: #008784;"><t t-esc="pos.format_currency_ref(pm.igtf_amount_ref)"/></span>
+                        </span>
+                    </div>
+
+                    <div t-if="_showDiff" class="d-flex align-items-center justify-content-between text-muted border-start ps-2">
+                        <span>Counted</span>
+                        <span t-esc="env.utils.formatCurrency(counted)" />
+                    </div>
+                    <div t-if="_showDiff" class="d-flex align-items-center justify-content-between text-muted border-start ps-2" t-att-class="{'text-danger fw-bold': diff}">
+                        <span>Difference</span>
+                        <span class="cash-difference-non-cash" t-esc="env.utils.formatCurrency(diff)" />
+                    </div>
+                </div>
+
+            </div>
+        </xpath>
+
+        <!-- Money Details Popup Instance USD -->
+        <xpath expr="//MoneyDetailsPopup" position="after">
+            <MoneyDetailsPopupUSD
+                t-if="state.displayMoneyDetailsPopupUSD"
+                manualInputCashCountUSD="manualInputCashCountUSD"
+                onConfirm.bind="updateCountedCashUSD"
+                onDiscard.bind="closeDetailsPopupUSD"
+            />
+        </xpath>
+
+        <!-- Desglose de IGTF en Cierre encima de las Notas -->
+        <xpath expr="//div[hasclass('collapsible-container')]" position="before">
+            <div class="igtf-summary-card mb-3 p-3" style="background-color: #fffaf0; border: 1px solid #ffe8cc; border-radius: 8px;">
+                <h4 class="mb-2 fw-bold" style="color: #a04000;"><i class="fa fa-percent me-1"/> Resumen IGTF Acumulado (3%)</h4>
+                <div class="d-flex align-items-center justify-content-between py-1">
+                    <span class="text-muted">Total IGTF Recaudado (VES)</span>
+                    <span class="fw-bold" style="color: #a04000;" t-esc="env.utils.formatCurrency(props.orders_details.igtf_total)"/>
+                </div>
+                <div class="d-flex align-items-center justify-content-between py-1">
+                    <span class="text-muted">Equivalente IGTF Recaudado (USD)</span>
+                    <span class="fw-bold" style="color: #008784;" t-esc="pos.format_currency_ref(props.orders_details.igtf_total_ref)"/>
+                </div>
+            </div>
+        </xpath>
+
+    </t>
+</templates>

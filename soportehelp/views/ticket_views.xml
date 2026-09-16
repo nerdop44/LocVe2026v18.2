@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="soportehelp_ticket_tree" model="ir.ui.view">
+        <field name="name">soportehelp.ticket.list</field>
+        <field name="model">soportehelp.ticket</field>
+        <field name="arch" type="xml">
+            <list string="Mis Tickets" decoration-info="state == 'open'"
+                  decoration-muted="state == 'closed'">
+                <field name="ticket_ref" optional="show"/>
+                <field name="name"/>
+                <field name="priority" widget="badge" options="{'selection': {'urgent': 'danger', 'high': 'warning', 'normal': 'info', 'low': 'secondary'}}"/>
+                <field name="state" widget="badge"/>
+                <field name="create_date" readonly="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="soportehelp_ticket_form" model="ir.ui.view">
+        <field name="name">soportehelp.ticket.form</field>
+        <field name="model">soportehelp.ticket</field>
+        <field name="arch" type="xml">
+            <form string="Ticket de Soporte">
+                <header>
+                    <button name="action_send" type="object" string="Enviar Ticket"
+                            class="btn-primary"
+                            invisible="ticket_ref or state == 'closed'"
+                            confirm="¿Enviar este ticket al servicio de soporte?"/>
+                    <button name="action_sync" type="object" string="🔄 Sincronizar Mensajes"
+                            invisible="not ticket_ref or state == 'closed'"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,open,answered,closed"/>
+                </header>
+                <sheet>
+                    <div class="alert alert-warning text-center fw-bold mb-3" role="alert">
+                        <i class="fa fa-exclamation-triangle me-2"/>
+                        Para la activación completa de su servicio de soporte y asistencia técnica, por favor comuníquese con el Servicio de Soporte Técnico y Funcional.
+                    </div>
+                    <group>
+                        <group string="Datos de la Solicitud">
+                            <field name="name" placeholder="Asunto de la solicitud..." readonly="state == 'closed'"/>
+                            <field name="priority" readonly="state == 'closed'"/>
+                            <field name="ticket_ref" readonly="1"/>
+                            <field name="sla_status" widget="badge" decoration-success="sla_status == 'reached'" decoration-warning="sla_status == 'in_progress'" decoration-danger="sla_status == 'failed'" readonly="1"/>
+                            <field name="sla_deadline" readonly="1"/>
+                        </group>
+                        <group string="Atención y Seguimiento">
+                            <field name="assigned_agent_name" readonly="1"/>
+                            <field name="assigned_team_name" readonly="1"/>
+                            <field name="total_hours_spent" widget="float_time" readonly="1" string="Horas Invertidas"/>
+                            <field name="client_user_name" readonly="1"/>
+                            <field name="last_error" invisible="1"/>
+                            <field name="config_id" invisible="1"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="description" placeholder="Describa detalladamente su duda o requerimiento..." readonly="state == 'closed'"/>
+                    </group>
+                    <group string="⭐ Evaluación de Servicio al Cliente (CSAT)" invisible="state not in ('answered', 'closed')">
+                        <group>
+                            <field name="csat_rating" widget="badge" string="Calificación Actual"/>
+                            <label for="csat_rating" string="Enviar / Actualizar Voto"/>
+                            <div>
+                                <button name="action_rate_excellent" type="object" string="😃 Excelente" class="btn-success btn-sm me-1"/>
+                                <button name="action_rate_neutral" type="object" string="😐 Regular" class="btn-warning btn-sm me-1"/>
+                                <button name="action_rate_bad" type="object" string="🙁 Malo" class="btn-danger btn-sm"/>
+                            </div>
+                        </group>
+                        <group>
+                            <field name="csat_comment" placeholder="Comentarios sobre la atención recibida..."/>
+                        </group>
+                    </group>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+</odoo>

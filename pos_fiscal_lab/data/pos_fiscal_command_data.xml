@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="cmd_item" model="pos.fiscal.command">
+            <field name="name">Venta Item (!)</field>
+            <field name="code">!</field>
+            <field name="protocol">hka</field>
+            <field name="description">Envía una línea de producto a la factura abierta.</field>
+            <field name="field_template">{
+                "fields": [
+                    {"name": "tag", "label": "Tasa", "type": "selection", "options": [["!", "General (16%)"], ["\"", "Reducido (8/12%)"], ["#", "Adicional (31%)"], [" ", "Exento"]]},
+                    {"name": "price", "label": "Precio (10d)", "type": "numeric", "length": 10, "placeholder": "0000001000"},
+                    {"name": "qty", "label": "Cantidad (8d)", "type": "numeric", "length": 8, "placeholder": "00001000"},
+                    {"name": "desc", "label": "Descripción", "type": "text", "length": 40}
+                ]
+            }</field>
+            <field name="sequence">5</field>
+        </record>
+
+        <record id="cmd_header" model="pos.fiscal.command">
+            <field name="name">Datos de Cabecera (i)</field>
+            <field name="code">i</field>
+            <field name="protocol">hka</field>
+            <field name="description">Programa o envía líneas de información (RIF, Nombre, etc).</field>
+            <field name="field_template">{
+                "fields": [
+                    {"name": "type", "label": "Tipo", "type": "selection", "options": [["S", "Nombre/Sujeto"], ["R", "RIF"], ["0", "Línea 1"], ["1", "Línea 2"]]},
+                    {"name": "content", "label": "Contenido", "type": "text", "length": 40}
+                ]
+            }</field>
+            <field name="sequence">6</field>
+        </record>
+
+        <record id="cmd_pago" model="pos.fiscal.command">
+            <field name="name">Pago (1-9)</field>
+            <field name="code">1</field>
+            <field name="protocol">hka</field>
+            <field name="description">Cierra la factura con un método de pago.</field>
+            <field name="field_template">{
+                "fields": [
+                    {"name": "type", "label": "ID Pago", "type": "selection", "options": [["01", "Efectivo"], ["02", "Tarjeta"], ["05", "Divisa"]]},
+                    {"name": "amount", "label": "Monto (12d)", "type": "numeric", "length": 12}
+                ]
+            }</field>
+            <field name="sequence">7</field>
+        </record>
+
+        <!-- Status Commands -->
+        <record id="cmd_s1" model="pos.fiscal.command">
+            <field name="name">Status S1 (General)</field>
+            <field name="code">S1</field>
+            <field name="protocol">hka</field>
+            <field name="description">Consulta Serial, RIF, Última Factura y Z.</field>
+            <field name="sequence">1</field>
+        </record>
+        <record id="cmd_s2" model="pos.fiscal.command">
+            <field name="name">Status S2 (Venta)</field>
+            <field name="code">S2</field>
+            <field name="protocol">hka</field>
+            <field name="description">Consulta subtotal, base imponible y cantidad de items en la factura abierta.</field>
+            <field name="sequence">2</field>
+        </record>
+        <record id="cmd_s3" model="pos.fiscal.command">
+            <field name="name">Status S3 (Tasas)</field>
+            <field name="code">S3</field>
+            <field name="protocol">hka</field>
+            <field name="description">Consulta las tasas de impuestos configuradas y banderas de sistema.</field>
+            <field name="sequence">3</field>
+        </record>
+
+        <!-- Reports -->
+        <record id="cmd_i0x" model="pos.fiscal.command">
+            <field name="name">Reporte X (Venta Diaria)</field>
+            <field name="code">I0X</field>
+            <field name="protocol">hka</field>
+            <field name="description">Imprime resumen de ventas sin cierre de jornada.</field>
+            <field name="sequence">10</field>
+        </record>
+        <record id="cmd_i0z" model="pos.fiscal.command">
+            <field name="name">Reporte Z (Cierre Fiscal)</field>
+            <field name="code">I0Z</field>
+            <field name="protocol">hka</field>
+            <field name="description">Cierre de jornada fiscal con incremento del contador Z.</field>
+            <field name="sequence">11</field>
+        </record>
+
+        <!-- Info -->
+        <record id="cmd_version" model="pos.fiscal.command">
+            <field name="name">Version Firmware</field>
+            <field name="code">V</field>
+            <field name="protocol">hka</field>
+            <field name="description">Consulta versión del firmware instalada.</field>
+            <field name="sequence">20</field>
+        </record>
+    </data>
+</odoo>
